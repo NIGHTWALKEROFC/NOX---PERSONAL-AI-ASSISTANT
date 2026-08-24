@@ -1,5 +1,5 @@
 data/
 __pycache__/
 *.pyc
-# voice-models/*.onnx
+voice-models/*.onnx
 voice-models/piper.exe
