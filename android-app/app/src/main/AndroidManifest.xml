@@ -12,7 +12,7 @@
     <application
         android:allowBackup="true"
         android:label="NOX"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@drawable/ic_launcher"
         android:theme="@style/Theme.NOX">
 
         <activity
