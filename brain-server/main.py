@@ -1,9 +1,11 @@
 from fastapi import FastAPI, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from llm import chat
 from database import init_db
 import knowledge
 import memory as mem
+import voice
 import config
 
 app = FastAPI(title="NOX Brain Server")
@@ -15,10 +17,12 @@ sessions: dict[str, list[dict]] = {}
 class ChatRequest(BaseModel):
     session_id: str
     message: str
+    speak: bool = False
 
 
 class ChatResponse(BaseModel):
     reply: str
+    audio_url: str | None = None
 
 
 class TextKnowledgeRequest(BaseModel):
@@ -32,6 +36,10 @@ class UrlKnowledgeRequest(BaseModel):
 
 class MemoryRequest(BaseModel):
     fact: str
+
+
+class SpeakRequest(BaseModel):
+    text: str
 
 
 @app.get("/health")
@@ -49,7 +57,24 @@ def chat_endpoint(req: ChatRequest):
     history.append({"role": "assistant", "content": reply})
     sessions[req.session_id] = history[-20:]
 
-    return ChatResponse(reply=reply)
+    audio_url = None
+    if req.speak:
+        voice.speak_to_file(reply, f"{req.session_id}_reply.wav")
+        audio_url = f"/audio/{req.session_id}_reply.wav"
+
+    return ChatResponse(reply=reply, audio_url=audio_url)
+
+
+@app.post("/speak")
+def speak_endpoint(req: SpeakRequest):
+    out_path = voice.speak_to_file(req.text, "ad_hoc.wav")
+    return {"audio_url": "/audio/ad_hoc.wav", "path": str(out_path)}
+
+
+@app.get("/audio/{filename}")
+def get_audio(filename: str):
+    path = voice.OUTPUT_DIR / filename
+    return FileResponse(path, media_type="audio/wav")
 
 
 @app.post("/knowledge/text")
