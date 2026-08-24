@@ -9,10 +9,11 @@ import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 
-// Piper voice model files must be placed by you (not via GitHub) into:
-// app/src/main/assets/nox-voice/en_US-amy-medium.onnx
-// app/src/main/assets/nox-voice/en_US-amy-medium.onnx.json
-// app/src/main/assets/nox-voice/tokens.txt   (comes with the voice model, if provided)
+// Place these into app/src/main/assets/nox-voice/ (not via GitHub, added locally):
+//   en_US-amy-medium.onnx
+//   tokens.txt
+//   espeak-ng-data/   (whole folder)
+// All three come from https://huggingface.co/csukuangfj/vits-piper-en_US-amy-medium
 object NoxTts {
     private var tts: OfflineTts? = null
 
@@ -22,7 +23,7 @@ object NoxTts {
             model = "nox-voice/en_US-amy-medium.onnx",
             lexicon = "",
             tokens = "nox-voice/tokens.txt",
-            dataDir = "",
+            dataDir = "nox-voice/espeak-ng-data",
         )
         val modelConfig = OfflineTtsModelConfig(
             vits = vitsConfig,
