@@ -1,0 +1,23 @@
+workflows:
+  nox-android:
+    name: NOX Android Build
+    max_build_duration: 60
+    environment:
+      groups: []
+      vars:
+        PACKAGE_NAME: "com.nox.assistant"
+      java: 17
+    scripts:
+      - name: Build debug APK
+        script: |
+          cd android-app
+          chmod +x ./gradlew || true
+          ./gradlew assembleDebug
+    artifacts:
+      - android-app/app/build/outputs/**/*.apk
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
