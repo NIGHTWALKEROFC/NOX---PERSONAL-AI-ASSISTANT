@@ -82,8 +82,8 @@ def list_knowledge() -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def delete_knowledge(doc_id: str) -> bool:
-    existing = collection.get(where={"doc_id": doc_id})
+def delete_knowledge(doc_id: str) -> dict:
+    existing = collection.get(where={"doc_id": {"$eq": doc_id}})
     ids = existing.get("ids", [])
     if ids:
         collection.delete(ids=ids)
@@ -92,4 +92,10 @@ def delete_knowledge(doc_id: str) -> bool:
     conn.execute("DELETE FROM knowledge_meta WHERE id = ?", (doc_id,))
     conn.commit()
     conn.close()
-    return True
+
+    still_present = collection.get(where={"doc_id": {"$eq": doc_id}})
+    return {
+        "deleted": doc_id,
+        "chunks_removed": len(ids),
+        "fully_removed": len(still_present.get("ids", [])) == 0,
+    }
