@@ -3,4 +3,5 @@ requests==2.32.3
 sounddevice==0.4.7
 soundfile==0.12.1
 numpy>=2.1.0
+av==14.2.0
 faster-whisper==1.0.3
