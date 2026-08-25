@@ -109,8 +109,7 @@ def knowledge_list():
 
 @app.delete("/knowledge/{doc_id}")
 def knowledge_delete(doc_id: str):
-    knowledge.delete_knowledge(doc_id)
-    return {"deleted": doc_id}
+    return knowledge.delete_knowledge(doc_id)
 
 
 @app.post("/memory")
