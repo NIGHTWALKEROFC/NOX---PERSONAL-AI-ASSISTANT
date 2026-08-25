@@ -13,6 +13,7 @@
         android:allowBackup="true"
         android:label="NOX"
         android:icon="@drawable/ic_launcher"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.NOX">
 
         <activity
