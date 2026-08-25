@@ -68,6 +68,8 @@ def add_voice_transcript(text: str, name: str = "voice note") -> str:
 
 
 def search(query: str, n_results: int = 4) -> list[str]:
+    if collection.count() == 0:
+        return []
     results = collection.query(query_texts=[query], n_results=n_results)
     docs = results.get("documents", [[]])[0]
     return docs
