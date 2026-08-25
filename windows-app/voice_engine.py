@@ -17,7 +17,6 @@ def _rms(audio: np.ndarray) -> float:
 
 
 def _is_garbage(text: str) -> bool:
-    # catches hallucinated repeated-character/word loops from near-silent audio
     if len(text) > 40 and len(set(text.replace(" ", ""))) <= 3:
         return True
     words = text.split()
@@ -66,14 +65,20 @@ class VoiceEngine:
         segments, _ = self._model.transcribe(audio, language="en", vad_filter=True)
         return " ".join(seg.text for seg in segments).strip().lower()
 
+    def _speak(self, text: str):
+        try:
+            api_client.speak_text(text)
+            audio_bytes = api_client.get_audio_bytes("/audio/ad_hoc.wav")
+            play_wav_bytes(audio_bytes)
+        except Exception as e:
+            self.on_status(f"(could not speak: {e})")
+
     def _loop(self):
         self.on_status("listening for wake phrase")
         while self._running:
             duration = config.COMMAND_CHUNK_SECONDS if self._active else config.PASSIVE_CHUNK_SECONDS
             audio = record_seconds(duration)
 
-            # Skip near-silent audio entirely — avoids hallucinated garbage text
-            # and avoids burning CPU on Whisper for clips with nothing said.
             if _rms(audio) < 0.01:
                 time.sleep(0.2)
                 continue
@@ -89,16 +94,21 @@ class VoiceEngine:
                 if _contains_wake(text):
                     self._active = True
                     self.on_status("active — listening for command")
+                    self.on_transcript("[WAKE WORD DETECTED]")
+                    self._speak("Yes?")
                 time.sleep(0.2)
                 continue
 
             if _contains_sleep(text):
                 self._active = False
                 self.on_status("listening for wake phrase")
+                self.on_transcript("[SLEEP]")
+                self._speak("Going to sleep.")
                 time.sleep(0.2)
                 continue
 
             self.on_status("thinking")
+            self.on_transcript(f"[SENDING: {text}]")
             try:
                 result = api_client.chat(text, speak=True)
                 reply = result["reply"]
