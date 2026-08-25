@@ -1,9 +1,45 @@
 import threading
 import time
+import re
+import numpy as np
+from difflib import SequenceMatcher
 from faster_whisper import WhisperModel
 import config
 import api_client
 from audio_io import record_seconds, play_wav_bytes
+
+WAKE_CANDIDATES = ["nox", "knox", "nots", "notes", "nodes", "knocks", "noks", "nox's"]
+SLEEP_CANDIDATES = ["nox sleep", "nots sleep", "nodes sleep", "knox sleep"]
+
+
+def _rms(audio: np.ndarray) -> float:
+    return float(np.sqrt(np.mean(np.square(audio)))) if len(audio) else 0.0
+
+
+def _is_garbage(text: str) -> bool:
+    # catches hallucinated repeated-character/word loops from near-silent audio
+    if len(text) > 40 and len(set(text.replace(" ", ""))) <= 3:
+        return True
+    words = text.split()
+    if len(words) > 6 and len(set(words)) <= 2:
+        return True
+    return False
+
+
+def _contains_wake(text: str) -> bool:
+    words = re.findall(r"[a-z']+", text.lower())
+    for w in words:
+        for candidate in WAKE_CANDIDATES:
+            if SequenceMatcher(None, w, candidate).ratio() > 0.75:
+                return True
+    return False
+
+
+def _contains_sleep(text: str) -> bool:
+    lowered = text.lower()
+    return any(phrase in lowered for phrase in SLEEP_CANDIDATES) or (
+        "sleep" in lowered and _contains_wake(lowered)
+    )
 
 
 class VoiceEngine:
@@ -27,7 +63,7 @@ class VoiceEngine:
         self._running = False
 
     def _transcribe(self, audio) -> str:
-        segments, _ = self._model.transcribe(audio, language="en")
+        segments, _ = self._model.transcribe(audio, language="en", vad_filter=True)
         return " ".join(seg.text for seg in segments).strip().lower()
 
     def _loop(self):
@@ -35,21 +71,31 @@ class VoiceEngine:
         while self._running:
             duration = config.COMMAND_CHUNK_SECONDS if self._active else config.PASSIVE_CHUNK_SECONDS
             audio = record_seconds(duration)
+
+            # Skip near-silent audio entirely — avoids hallucinated garbage text
+            # and avoids burning CPU on Whisper for clips with nothing said.
+            if _rms(audio) < 0.01:
+                time.sleep(0.2)
+                continue
+
             text = self._transcribe(audio)
-            if not text:
+            if not text or _is_garbage(text):
+                time.sleep(0.2)
                 continue
 
             self.on_transcript(text)
 
             if not self._active:
-                if config.WAKE_PHRASE in text:
+                if _contains_wake(text):
                     self._active = True
                     self.on_status("active — listening for command")
+                time.sleep(0.2)
                 continue
 
-            if config.SLEEP_PHRASE in text:
+            if _contains_sleep(text):
                 self._active = False
                 self.on_status("listening for wake phrase")
+                time.sleep(0.2)
                 continue
 
             self.on_status("thinking")
@@ -64,3 +110,4 @@ class VoiceEngine:
                 self.on_reply(f"(voice error: {e})")
 
             self.on_status("active — listening for command")
+            time.sleep(0.2)
