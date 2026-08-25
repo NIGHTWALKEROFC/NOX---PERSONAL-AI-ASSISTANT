@@ -191,7 +191,7 @@ class SettingsTab(QWidget):
         self.chat_tab = chat_tab
         layout = QVBoxLayout(self)
 
-        self.status_label = QLabel("Voice: stopped")
+        self.status_label = QLabel("Voice: off")
         self.voice_toggle = QCheckBox("Enable voice control (wake phrase: 'hey nox')")
         self.voice_toggle.stateChanged.connect(self.toggle_voice)
 
@@ -204,17 +204,25 @@ class SettingsTab(QWidget):
         self.signals.transcript.connect(lambda t: self.chat_tab.append_voice_line("Heard", t))
         self.signals.reply.connect(lambda t: self.chat_tab.append_voice_line("NOX (voice)", t))
 
-        self.engine = VoiceEngine(
-            on_status=lambda s: self.signals.status.emit(f"Voice: {s}"),
-            on_transcript=lambda t: self.signals.transcript.emit(t),
-            on_reply=lambda t: self.signals.reply.emit(t),
-        )
+        # Voice engine is NOT created here — creating it loads the speech model,
+        # which takes time. It's only built the first time the user turns voice on,
+        # so the app window opens instantly instead of appearing frozen.
+        self.engine = None
 
     def toggle_voice(self, state):
         if state:
+            self.status_label.setText("Voice: loading speech model (first time may take a moment)...")
+            if self.engine is None:
+                self.engine = VoiceEngine(
+                    on_status=lambda s: self.signals.status.emit(f"Voice: {s}"),
+                    on_transcript=lambda t: self.signals.transcript.emit(t),
+                    on_reply=lambda t: self.signals.reply.emit(t),
+                )
             self.engine.start()
         else:
-            self.engine.stop()
+            if self.engine:
+                self.engine.stop()
+            self.status_label.setText("Voice: off")
 
 
 class MainWindow(QMainWindow):
