@@ -8,13 +8,13 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -139,9 +139,38 @@ fun ChatScreen() {
     var input by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var sending by remember { mutableStateOf(false) }
+    var listening by remember { mutableStateOf(false) }
     val items = remember { mutableStateListOf<ChatItem>() }
     var streamingText by remember { mutableStateOf("") }
     var isStreaming by remember { mutableStateOf(false) }
+
+    fun sendMessage(text: String) {
+        if (text.isBlank() || sending) return
+        items.add(UserMessage(text))
+        error = null
+        sending = true
+        isStreaming = true
+        streamingText = ""
+        scope.launch {
+            try {
+                StreamClient.chatStream(context, text) { event ->
+                    when (event.type) {
+                        "status" -> items.add(StatusLine(event.text ?: ""))
+                        "token" -> streamingText += event.text ?: ""
+                        "done" -> {
+                            items.add(AssistantMessage(event.reply ?: streamingText))
+                            isStreaming = false
+                            streamingText = ""
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                error = e.message ?: "could not reach the brain server"
+                isStreaming = false
+            }
+            sending = false
+        }
+    }
 
     Column(Modifier.fillMaxSize().padding(12.dp)) {
         if (error != null) {
@@ -166,39 +195,26 @@ fun ChatScreen() {
                 enabled = !sending
             )
             Spacer(Modifier.width(8.dp))
+            IconButton(onClick = {
+                if (listening || sending) return@IconButton
+                listening = true
+                scope.launch {
+                    val heard = PushToTalk.listenOnce(context)
+                    listening = false
+                    if (heard.isNotBlank()) {
+                        input = ""
+                        sendMessage(heard)
+                    }
+                }
+            }) {
+                Text(if (listening) "🎙️" else "🎤")
+            }
+            Spacer(Modifier.width(4.dp))
             Button(
                 onClick = {
                     val text = input.trim()
-                    if (text.isEmpty() || sending) return@Button
-                    items.add(UserMessage(text))
                     input = ""
-                    error = null
-                    sending = true
-                    isStreaming = true
-                    streamingText = ""
-                    scope.launch {
-                        try {
-                            StreamClient.chatStream(context, text) { event ->
-                                when (event.type) {
-                                    "status" -> {
-                                        items.add(StatusLine(event.text ?: ""))
-                                    }
-                                    "token" -> {
-                                        streamingText += event.text ?: ""
-                                    }
-                                    "done" -> {
-                                        items.add(AssistantMessage(event.reply ?: streamingText))
-                                        isStreaming = false
-                                        streamingText = ""
-                                    }
-                                }
-                            }
-                        } catch (e: Exception) {
-                            error = e.message ?: "could not reach the brain server"
-                            isStreaming = false
-                        }
-                        sending = false
-                    }
+                    sendMessage(text)
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = NoxAccent)
             ) { Text("Send", color = NoxBackground) }
