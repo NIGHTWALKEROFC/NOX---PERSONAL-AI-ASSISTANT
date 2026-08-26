@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QLineEdit, QPushButton, QListWidget, QListWidgetItem,
-    QFileDialog, QLabel, QMessageBox
+    QFileDialog, QLabel, QMessageBox, QTextEdit
 )
 from PySide6.QtCore import Qt
 import api_client
@@ -96,7 +96,9 @@ class TrainingTab(QWidget):
             return
         doc_id = item.data(Qt.UserRole)
         try:
-            api_client.delete_knowledge(doc_id)
+            result = api_client.delete_knowledge(doc_id)
+            if not result.get("fully_removed", True):
+                QMessageBox.warning(self, "Warning", "Delete may not have fully removed all data.")
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
         self.refresh()
@@ -161,14 +163,43 @@ class MemoryTab(QWidget):
         self.refresh()
 
 
+class SettingsTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Custom personality / instructions for NOX (applied to every conversation):"))
+        self.text_edit = QTextEdit()
+        layout.addWidget(self.text_edit)
+        save_btn = QPushButton("Save Personality")
+        save_btn.clicked.connect(self.save)
+        layout.addWidget(save_btn)
+        self.status_label = QLabel("")
+        layout.addWidget(self.status_label)
+        self.load()
+
+    def load(self):
+        try:
+            self.text_edit.setPlainText(api_client.get_personality())
+        except Exception as e:
+            self.status_label.setText(f"Could not load: {e}")
+
+    def save(self):
+        try:
+            api_client.set_personality(self.text_edit.toPlainText())
+            self.status_label.setText("Saved.")
+        except Exception as e:
+            self.status_label.setText(f"Could not save: {e}")
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("NOX — Training & Memory")
+        self.setWindowTitle("NOX — Training, Memory & Settings")
         self.resize(700, 550)
 
         tabs = QTabWidget()
         tabs.addTab(TrainingTab(), "Training")
         tabs.addTab(MemoryTab(), "Memory")
+        tabs.addTab(SettingsTab(), "Settings")
 
         self.setCentralWidget(tabs)
