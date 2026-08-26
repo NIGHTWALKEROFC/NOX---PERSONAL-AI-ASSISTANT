@@ -2,7 +2,6 @@ package com.nox.assistant
 
 import okhttp3.MultipartBody
 import okhttp3.ResponseBody
-import retrofit2.Response
 import retrofit2.http.*
 
 interface ApiService {
@@ -30,7 +29,7 @@ interface ApiService {
     suspend fun listKnowledge(): List<KnowledgeItem>
 
     @DELETE("knowledge/{docId}")
-    suspend fun deleteKnowledge(@Path("docId") docId: String): Response<Unit>
+    suspend fun deleteKnowledge(@Path("docId") docId: String): DeleteResult
 
     @POST("memory")
     suspend fun addMemory(@Body req: MemoryRequest): MemoryIdResponse
@@ -39,5 +38,11 @@ interface ApiService {
     suspend fun listMemory(): List<MemoryItem>
 
     @DELETE("memory/{memoryId}")
-    suspend fun deleteMemory(@Path("memoryId") memoryId: Int): Response<Unit>
+    suspend fun deleteMemory(@Path("memoryId") memoryId: Int): retrofit2.Response<Unit>
+
+    @GET("settings/personality")
+    suspend fun getPersonality(): PersonalityText
+
+    @POST("settings/personality")
+    suspend fun setPersonality(@Body req: PersonalityText): retrofit2.Response<Unit>
 }
