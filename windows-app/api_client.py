@@ -1,3 +1,4 @@
+import json
 import requests
 import config
 
@@ -12,6 +13,23 @@ def chat(message: str, speak: bool = False) -> dict:
     })
     resp.raise_for_status()
     return resp.json()
+
+
+def chat_stream(message: str, speak: bool = False):
+    resp = requests.post(
+        f"{BASE}/chat/stream",
+        json={"session_id": config.SESSION_ID, "message": message, "speak": speak},
+        stream=True,
+    )
+    resp.raise_for_status()
+    for line in resp.iter_lines(decode_unicode=True):
+        if not line or not line.startswith("data: "):
+            continue
+        payload = line[len("data: "):]
+        try:
+            yield json.loads(payload)
+        except json.JSONDecodeError:
+            continue
 
 
 def speak_text(text: str) -> dict:
@@ -77,5 +95,17 @@ def list_memory() -> list:
 
 def delete_memory(memory_id: int) -> dict:
     resp = requests.delete(f"{BASE}/memory/{memory_id}")
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_personality() -> str:
+    resp = requests.get(f"{BASE}/settings/personality")
+    resp.raise_for_status()
+    return resp.json().get("text", "")
+
+
+def set_personality(text: str) -> dict:
+    resp = requests.post(f"{BASE}/settings/personality", json={"text": text})
     resp.raise_for_status()
     return resp.json()
