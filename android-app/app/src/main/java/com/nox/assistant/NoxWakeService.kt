@@ -22,13 +22,15 @@ class NoxWakeService : Service() {
     private var active = false
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var consecutiveErrors = 0
 
     companion object {
         const val CHANNEL_ID = "nox_wake_channel"
         const val NOTIF_ID = 42
         const val WAKE_PHRASE = "hey nox"
         const val SLEEP_PHRASE = "nox sleep"
-        const val RESTART_DELAY_MS = 600L
+        const val BASE_RESTART_DELAY_MS = 800L
+        const val MAX_RESTART_DELAY_MS = 6000L
     }
 
     override fun onCreate() {
@@ -91,17 +93,21 @@ class NoxWakeService : Service() {
         SpeechRecognizer.ERROR_AUDIO -> "audio error"
         SpeechRecognizer.ERROR_CLIENT -> "client error"
         SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "missing permission"
-        SpeechRecognizer.ERROR_NETWORK -> "network error (voice recognition needs internet)"
+        SpeechRecognizer.ERROR_NETWORK -> "network error (needs internet)"
         SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "network timeout"
         SpeechRecognizer.ERROR_NO_MATCH -> "no match"
         SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "recognizer busy"
         SpeechRecognizer.ERROR_SERVER -> "server error"
         SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "no speech detected"
+        11 -> "server disconnected (recovering)"
         else -> "error $code"
     }
 
-    private fun scheduleRestart(delay: Long = RESTART_DELAY_MS) {
-        mainHandler.postDelayed({ if (recognizer != null || active || true) startListening() }, delay)
+    private fun scheduleRestart(baseDelay: Long = BASE_RESTART_DELAY_MS) {
+        // Exponential backoff on repeated errors — prevents the restart-loop
+        // that causes ERROR_SERVER_DISCONNECTED (error 11) in the first place.
+        val delay = (baseDelay * (1 shl consecutiveErrors.coerceAtMost(3))).coerceAtMost(MAX_RESTART_DELAY_MS)
+        mainHandler.postDelayed({ startListening() }, delay)
     }
 
     private fun startListening() {
@@ -109,16 +115,19 @@ class NoxWakeService : Service() {
         recognizer = SpeechRecognizer.createSpeechRecognizer(this)
         recognizer?.setRecognitionListener(object : RecognitionListener {
             override fun onResults(results: Bundle?) {
+                consecutiveErrors = 0
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 val text = matches?.firstOrNull()?.lowercase()?.trim().orEmpty()
                 handleTranscript(text)
-                scheduleRestart(150)
+                scheduleRestart(300)
             }
             override fun onError(error: Int) {
+                consecutiveErrors++
+                val label = errorName(error)
                 if (!active) {
-                    updateNotification("Listening for \"hey nox\" (${errorName(error)})")
+                    updateNotification("Listening for \"hey nox\" ($label)")
                 } else {
-                    updateNotification("Active — listening for command (${errorName(error)})")
+                    updateNotification("Active — listening for command ($label)")
                 }
                 scheduleRestart()
             }
@@ -138,10 +147,13 @@ class NoxWakeService : Service() {
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1200)
+            // Not forcing a single language — lets Malayalam and English both work,
+            // matching the auto-detect approach used on the Windows side.
         }
         try {
             recognizer?.startListening(intent)
         } catch (e: Exception) {
+            consecutiveErrors++
             updateNotification("Failed to start listening: ${e.message}")
             scheduleRestart(1500)
         }
@@ -151,7 +163,7 @@ class NoxWakeService : Service() {
         if (text.isEmpty()) return
 
         if (!active) {
-            if (text.contains(WAKE_PHRASE) || text.contains("nox") || text.contains("knox")) {
+            if (text.contains(WAKE_PHRASE) || text.contains("nox") || text.contains("knox") || text.contains("notes")) {
                 active = true
                 updateNotification("Active — listening for command")
                 NoxTts.speak("Yes?")
@@ -159,7 +171,7 @@ class NoxWakeService : Service() {
             return
         }
 
-        if (text.contains(SLEEP_PHRASE)) {
+        if (text.contains(SLEEP_PHRASE) || (text.contains("sleep") && (text.contains("nox") || text.contains("knox")))) {
             active = false
             updateNotification("Listening for \"hey nox\"")
             NoxTts.speak("Going to sleep.")
@@ -168,13 +180,16 @@ class NoxWakeService : Service() {
 
         updateNotification("Thinking...")
         scope.launch {
+            var fullReply = ""
             try {
-                val api = ApiClient.get(applicationContext)
-                val sessionId = Prefs.getSessionId(applicationContext)
-                val result = withContext(Dispatchers.IO) {
-                    api.chat(ChatRequest(sessionId, text, speak = false))
+                StreamClient.chatStream(applicationContext, text) { event ->
+                    when (event.type) {
+                        "status" -> updateNotification(event.text ?: "...")
+                        "done" -> fullReply = event.reply ?: fullReply
+                        else -> {}
+                    }
                 }
-                NoxTts.speak(result.reply)
+                if (fullReply.isNotBlank()) NoxTts.speak(fullReply)
             } catch (e: Exception) {
                 NoxTts.speak("Sorry, I could not reach the brain server.")
             }
