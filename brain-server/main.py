@@ -1,11 +1,13 @@
+import json
 from fastapi import FastAPI, UploadFile, File, Form
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
-from llm import chat
+from llm import chat, chat_stream
 from database import init_db
 import knowledge
 import memory as mem
 import voice
+import settings as app_settings
 import config
 
 app = FastAPI(title="NOX Brain Server")
@@ -42,6 +44,10 @@ class SpeakRequest(BaseModel):
     text: str
 
 
+class PersonalityRequest(BaseModel):
+    text: str
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "model": config.MODEL_NAME}
@@ -65,10 +71,35 @@ def chat_endpoint(req: ChatRequest):
     return ChatResponse(reply=reply, audio_url=audio_url)
 
 
+@app.post("/chat/stream")
+def chat_stream_endpoint(req: ChatRequest):
+    history = sessions.get(req.session_id, [])
+    context_chunks = knowledge.search(req.message)
+
+    def event_generator():
+        full_reply = ""
+        for event in chat_stream(req.message, history, context_chunks):
+            if event["type"] == "done":
+                full_reply = event["reply"]
+                history.append({"role": "user", "content": req.message})
+                history.append({"role": "assistant", "content": full_reply})
+                sessions[req.session_id] = history[-20:]
+
+                audio_url = None
+                if req.speak and full_reply:
+                    voice.speak_to_file(full_reply, f"{req.session_id}_reply.wav")
+                    audio_url = f"/audio/{req.session_id}_reply.wav"
+                event = {**event, "audio_url": audio_url}
+
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
 @app.post("/speak")
 def speak_endpoint(req: SpeakRequest):
-    out_path = voice.speak_to_file(req.text, "ad_hoc.wav")
-    return {"audio_url": "/audio/ad_hoc.wav", "path": str(out_path)}
+    voice.speak_to_file(req.text, "ad_hoc.wav")
+    return {"audio_url": "/audio/ad_hoc.wav"}
 
 
 @app.get("/audio/{filename}")
@@ -127,3 +158,14 @@ def memory_list():
 def memory_delete(memory_id: int):
     mem.forget(memory_id)
     return {"deleted": memory_id}
+
+
+@app.get("/settings/personality")
+def get_personality():
+    return {"text": app_settings.get_personality()}
+
+
+@app.post("/settings/personality")
+def set_personality(req: PersonalityRequest):
+    app_settings.set_personality(req.text)
+    return {"saved": True}
