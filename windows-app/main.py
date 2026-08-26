@@ -1,3 +1,6 @@
+import logging
+logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+
 import sys
 import threading
 from rich.console import Console
@@ -59,7 +62,9 @@ def run_voice():
 def run_chat_terminal():
     console.print(Panel(
         "NOX is online.\nType a message and press Enter, or just speak \"hey nox\" out loud.\n"
-        "While NOX is talking, just start speaking to interrupt it (barge-in).\nType 'exit' to quit.",
+        "While NOX is talking, just start speaking to interrupt it (barge-in).\n"
+        "There's also a Push-to-Talk button in the Settings window if wake-word listening is unreliable.\n"
+        "Type 'exit' to quit.",
         title="[bold green]NOX Assistant[/bold green]",
         border_style="green",
     ))
