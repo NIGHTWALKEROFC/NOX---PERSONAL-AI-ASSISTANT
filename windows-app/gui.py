@@ -3,8 +3,9 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QListWidget, QListWidgetItem,
     QFileDialog, QLabel, QMessageBox, QTextEdit
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal
 import api_client
+import ptt
 
 
 class TrainingTab(QWidget):
@@ -163,6 +164,14 @@ class MemoryTab(QWidget):
         self.refresh()
 
 
+class PttWorker(QThread):
+    finished_result = Signal(str, str)
+
+    def run(self):
+        heard, reply = ptt.push_to_talk(5.0)
+        self.finished_result.emit(heard, reply)
+
+
 class SettingsTab(QWidget):
     def __init__(self):
         super().__init__()
@@ -173,9 +182,19 @@ class SettingsTab(QWidget):
         save_btn = QPushButton("Save Personality")
         save_btn.clicked.connect(self.save)
         layout.addWidget(save_btn)
+
+        layout.addWidget(QLabel(""))
+        self.ptt_btn = QPushButton("🎤 Push to Talk (5 sec, no wake word needed)")
+        self.ptt_btn.clicked.connect(self.push_to_talk)
+        layout.addWidget(self.ptt_btn)
+        self.ptt_result = QLabel("")
+        self.ptt_result.setWordWrap(True)
+        layout.addWidget(self.ptt_result)
+
         self.status_label = QLabel("")
         layout.addWidget(self.status_label)
         self.load()
+        self.ptt_worker = None
 
     def load(self):
         try:
@@ -190,12 +209,26 @@ class SettingsTab(QWidget):
         except Exception as e:
             self.status_label.setText(f"Could not save: {e}")
 
+    def push_to_talk(self):
+        self.ptt_btn.setEnabled(False)
+        self.ptt_result.setText("Listening for 5 seconds...")
+        self.ptt_worker = PttWorker()
+        self.ptt_worker.finished_result.connect(self.on_ptt_done)
+        self.ptt_worker.start()
+
+    def on_ptt_done(self, heard: str, reply: str):
+        self.ptt_btn.setEnabled(True)
+        if heard:
+            self.ptt_result.setText(f"You: {heard}\nNOX: {reply}")
+        else:
+            self.ptt_result.setText(reply)
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("NOX — Training, Memory & Settings")
-        self.resize(700, 550)
+        self.resize(700, 600)
 
         tabs = QTabWidget()
         tabs.addTab(TrainingTab(), "Training")
