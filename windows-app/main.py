@@ -9,12 +9,28 @@ from voice_engine import VoiceEngine
 console = Console()
 
 
-def print_nox(text: str):
-    console.print(Panel(text, title="[bold magenta]NOX[/bold magenta]", border_style="magenta", expand=False))
-
-
 def print_status(text: str):
-    console.print(f"[dim]· {text}[/dim]")
+    console.print(f"[dim]  ({text})[/dim]")
+
+
+def stream_chat_to_terminal(text: str):
+    console.print("[bold magenta]NOX:[/bold magenta] ", end="")
+    try:
+        started_reply = False
+        for event in api_client.chat_stream(text, speak=False):
+            if event["type"] == "status":
+                if started_reply:
+                    console.print()
+                print_status(event["text"])
+                console.print("[bold magenta]NOX:[/bold magenta] ", end="")
+                started_reply = False
+            elif event["type"] == "token":
+                console.print(event["text"], end="")
+                started_reply = True
+            elif event["type"] == "done":
+                console.print()
+    except Exception as e:
+        console.print(f"[bold red]\nError:[/bold red] {e}")
 
 
 def run_gui():
@@ -27,10 +43,14 @@ def run_gui():
 
 
 def run_voice():
+    def on_stream_token(t):
+        console.print(t, end="")
+
     engine = VoiceEngine(
         on_status=print_status,
         on_transcript=lambda t: print_status(f"Heard: {t}"),
-        on_reply=print_nox,
+        on_reply=lambda t: console.print(),
+        on_stream_token=on_stream_token,
     )
     engine.start()
     threading.Event().wait()
@@ -38,7 +58,8 @@ def run_voice():
 
 def run_chat_terminal():
     console.print(Panel(
-        "NOX is online.\nType a message and press Enter, or just speak \"hey nox\" out loud.\nType 'exit' to quit.",
+        "NOX is online.\nType a message and press Enter, or just speak \"hey nox\" out loud.\n"
+        "While NOX is talking, just start speaking to interrupt it (barge-in).\nType 'exit' to quit.",
         title="[bold green]NOX Assistant[/bold green]",
         border_style="green",
     ))
@@ -51,11 +72,7 @@ def run_chat_terminal():
             continue
         if text.lower() in ("exit", "quit"):
             break
-        try:
-            result = api_client.chat(text, speak=False)
-            print_nox(result["reply"])
-        except Exception as e:
-            console.print(f"[bold red]Error:[/bold red] {e}")
+        stream_chat_to_terminal(text)
 
 
 if __name__ == "__main__":
