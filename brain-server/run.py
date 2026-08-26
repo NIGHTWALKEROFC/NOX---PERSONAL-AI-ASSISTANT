@@ -1,3 +1,6 @@
+import logging
+logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+
 import uvicorn
 import config
 
