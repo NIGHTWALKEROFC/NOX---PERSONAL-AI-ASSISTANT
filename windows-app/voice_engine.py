@@ -11,6 +11,8 @@ from audio_io import record_seconds, play_wav_bytes
 WAKE_CANDIDATES = ["nox", "knox", "nots", "notes", "nodes", "knocks", "noks", "nox's"]
 SLEEP_CANDIDATES = ["nox sleep", "nots sleep", "nodes sleep", "knox sleep"]
 
+ACTIVE_TIMEOUT_SECONDS = 15  # if no real command is heard for this long, drop back to passive listening
+
 
 def _rms(audio: np.ndarray) -> float:
     return float(np.sqrt(np.mean(np.square(audio)))) if len(audio) else 0.0
@@ -50,6 +52,7 @@ class VoiceEngine:
         self._thread = None
         self._model = WhisperModel(config.WHISPER_MODEL_SIZE, device="cpu", compute_type="int8")
         self._active = False
+        self._active_since = 0.0
 
     def start(self):
         if self._running:
@@ -67,18 +70,22 @@ class VoiceEngine:
         )
         return " ".join(seg.text for seg in segments).strip().lower()
 
-    def _play_async(self, wav_bytes: bytes):
-        # Runs playback on its own thread so the listening loop is never blocked
-        # by NOX talking. Use headphones to avoid the mic hearing NOX's own voice.
-        threading.Thread(target=play_wav_bytes, args=(wav_bytes,), daemon=True).start()
-
-    def _speak(self, text: str):
+    def _speak_blocking(self, text: str):
+        # Used for short confirmations ("Yes?", "Going to sleep") — deliberately
+        # blocking so the mic isn't recording at the exact same instant audio
+        # is being played, which on Windows can silently capture near-silence
+        # instead of your actual voice.
         try:
             api_client.speak_text(text)
             audio_bytes = api_client.get_audio_bytes("/audio/ad_hoc.wav")
-            self._play_async(audio_bytes)
+            play_wav_bytes(audio_bytes)
         except Exception as e:
             self.on_status(f"(could not speak: {e})")
+
+    def _speak_async(self, wav_bytes: bytes):
+        # Used for full assistant replies — non-blocking so you can start
+        # talking again without waiting for a long reply to finish.
+        threading.Thread(target=play_wav_bytes, args=(wav_bytes,), daemon=True).start()
 
     def _loop(self):
         self.on_status("listening for wake phrase")
@@ -87,11 +94,19 @@ class VoiceEngine:
             audio = record_seconds(duration)
 
             if _rms(audio) < 0.01:
+                if self._active and (time.time() - self._active_since) > ACTIVE_TIMEOUT_SECONDS:
+                    self._active = False
+                    self.on_status("listening for wake phrase")
+                    self.on_transcript("[TIMED OUT — no command heard, back to passive listening]")
                 time.sleep(0.15)
                 continue
 
             text = self._transcribe(audio)
             if not text or _is_garbage(text):
+                if self._active and (time.time() - self._active_since) > ACTIVE_TIMEOUT_SECONDS:
+                    self._active = False
+                    self.on_status("listening for wake phrase")
+                    self.on_transcript("[TIMED OUT — no command heard, back to passive listening]")
                 time.sleep(0.15)
                 continue
 
@@ -100,9 +115,10 @@ class VoiceEngine:
             if not self._active:
                 if _contains_wake(text):
                     self._active = True
+                    self._active_since = time.time()
                     self.on_status("active — listening for command")
-                    self.on_transcript("[WAKE WORD DETECTED]")
-                    self._speak("Yes?")
+                    self.on_transcript("[WAKE WORD DETECTED — waiting for your command]")
+                    self._speak_blocking("Yes?")
                 time.sleep(0.15)
                 continue
 
@@ -110,7 +126,7 @@ class VoiceEngine:
                 self._active = False
                 self.on_status("listening for wake phrase")
                 self.on_transcript("[SLEEP]")
-                self._speak("Going to sleep.")
+                self._speak_blocking("Going to sleep.")
                 time.sleep(0.15)
                 continue
 
@@ -122,9 +138,10 @@ class VoiceEngine:
                 self.on_reply(reply)
                 if result.get("audio_url"):
                     audio_bytes = api_client.get_audio_bytes(result["audio_url"])
-                    self._play_async(audio_bytes)
+                    self._speak_async(audio_bytes)
             except Exception as e:
                 self.on_reply(f"(voice error: {e})")
 
+            self._active_since = time.time()
             self.on_status("active — listening for command")
             time.sleep(0.15)
