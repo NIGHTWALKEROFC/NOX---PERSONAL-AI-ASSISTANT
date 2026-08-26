@@ -1,5 +1,9 @@
-import psutil
+import re
 import socket
+import subprocess
+import psutil
+
+_HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9.\-]{1,253}$")
 
 TOOL_DEFINITIONS = [
     {
@@ -9,9 +13,7 @@ TOOL_DEFINITIONS = [
             "description": "List running processes on this local machine (read-only, top by memory usage).",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "limit": {"type": "integer", "description": "Max number of processes to return, default 15"}
-                },
+                "properties": {"limit": {"type": "integer", "description": "Max processes to return, default 15"}},
                 "required": []
             }
         }
@@ -28,10 +30,54 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "network_info",
-            "description": "Get basic local network info: hostname, local IP address, active network interfaces (read-only).",
+            "description": "Get basic local network info: hostname, local IP, active interfaces (read-only).",
             "parameters": {"type": "object", "properties": {}, "required": []}
         }
-    }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "dns_lookup",
+            "description": "Resolve a hostname to its IP address(es) (read-only DNS lookup).",
+            "parameters": {
+                "type": "object",
+                "properties": {"hostname": {"type": "string", "description": "Hostname to resolve, e.g. example.com"}},
+                "required": ["hostname"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ping_host",
+            "description": "Ping a host a few times to check reachability and latency (read-only, no packet crafting).",
+            "parameters": {
+                "type": "object",
+                "properties": {"host": {"type": "string", "description": "Hostname or IP to ping"}},
+                "required": ["host"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "wifi_scan",
+            "description": "List nearby Wi-Fi networks visible to this machine (read-only, Windows only).",
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_recon",
+            "description": (
+                "Run a full read-only recon checklist: processes, open ports, network info, "
+                "and nearby Wi-Fi networks, combined into one summary. Use this when the user "
+                "asks for a 'recon', 'scan', 'checkup', or similar broad system overview."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []}
+        }
+    },
 ]
 
 
@@ -76,8 +122,66 @@ def network_info() -> str:
     return "\n".join(lines)
 
 
+def dns_lookup(hostname: str) -> str:
+    if not hostname or not _HOSTNAME_RE.match(hostname):
+        return "Invalid hostname."
+    try:
+        infos = socket.getaddrinfo(hostname, None)
+        ips = sorted({info[4][0] for info in infos})
+        return f"{hostname} resolves to: {', '.join(ips)}"
+    except socket.gaierror as e:
+        return f"Could not resolve {hostname}: {e}"
+
+
+def ping_host(host: str) -> str:
+    if not host or not _HOSTNAME_RE.match(host):
+        return "Invalid host."
+    try:
+        result = subprocess.run(
+            ["ping", "-n", "4", host],
+            capture_output=True, text=True, timeout=15
+        )
+        return result.stdout.strip() or result.stderr.strip() or "No output from ping."
+    except subprocess.TimeoutExpired:
+        return f"Ping to {host} timed out."
+    except Exception as e:
+        return f"Could not run ping: {e}"
+
+
+def wifi_scan() -> str:
+    try:
+        result = subprocess.run(
+            ["netsh", "wlan", "show", "networks", "mode=bssid"],
+            capture_output=True, text=True, timeout=15
+        )
+        output = result.stdout.strip()
+        return output if output else "No Wi-Fi networks found, or Wi-Fi adapter unavailable."
+    except FileNotFoundError:
+        return "wifi_scan is only available on Windows."
+    except Exception as e:
+        return f"Could not scan Wi-Fi: {e}"
+
+
+def run_recon() -> str:
+    parts = [
+        "=== Processes (top 5 by memory) ===",
+        list_processes(5),
+        "\n=== Open TCP Ports ===",
+        check_open_ports(),
+        "\n=== Network Info ===",
+        network_info(),
+        "\n=== Nearby Wi-Fi Networks ===",
+        wifi_scan(),
+    ]
+    return "\n".join(parts)
+
+
 TOOL_FUNCTIONS = {
     "list_processes": list_processes,
     "check_open_ports": check_open_ports,
     "network_info": network_info,
+    "dns_lookup": dns_lookup,
+    "ping_host": ping_host,
+    "wifi_scan": wifi_scan,
+    "run_recon": run_recon,
 }
