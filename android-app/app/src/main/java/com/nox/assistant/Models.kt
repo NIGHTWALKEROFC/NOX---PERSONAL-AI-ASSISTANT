@@ -9,3 +9,5 @@ data class KnowledgeItem(val id: String, val source_type: String, val source_nam
 data class MemoryItem(val id: Int, val fact: String, val created_at: String)
 data class IdResponse(val doc_id: String?)
 data class MemoryIdResponse(val id: Int)
+data class DeleteResult(val deleted: String?, val chunks_removed: Int?, val fully_removed: Boolean?)
+data class PersonalityText(val text: String)
