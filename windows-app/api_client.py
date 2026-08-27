@@ -65,6 +65,14 @@ def add_pdf_knowledge(file_path: str, name: str | None = None) -> dict:
     return resp.json()
 
 
+def add_image_knowledge(file_path: str, name: str | None = None) -> dict:
+    with open(file_path, "rb") as f:
+        data = {"name": name} if name else {}
+        resp = requests.post(f"{BASE}/knowledge/image", files={"file": f}, data=data)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def add_url_knowledge(url: str, name: str | None = None) -> dict:
     resp = requests.post(f"{BASE}/knowledge/url", json={"url": url, "name": name})
     resp.raise_for_status()
