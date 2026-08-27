@@ -5,11 +5,16 @@ from pypdf import PdfReader
 import chromadb
 from chromadb.utils import embedding_functions
 from database import get_conn
+from ocr import extract_text_from_image
 
 CHROMA_PATH = "data/chroma"
 embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
 client = chromadb.PersistentClient(path=CHROMA_PATH)
 collection = client.get_or_create_collection("nox_knowledge", embedding_function=embed_fn)
+
+# Chroma chokes on adding thousands of chunks in one call for very large
+# documents — batching keeps large-file ingestion (big PDFs, long pages) reliable.
+BATCH_SIZE = 200
 
 
 def _chunk(text: str, size: int = 800, overlap: int = 100) -> list[str]:
@@ -26,9 +31,12 @@ def _store(text: str, source_type: str, source_name: str) -> str:
     chunks = _chunk(text)
     if not chunks:
         return doc_id
-    ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
-    metadatas = [{"doc_id": doc_id, "source_type": source_type, "source_name": source_name} for _ in chunks]
-    collection.add(documents=chunks, ids=ids, metadatas=metadatas)
+
+    for start in range(0, len(chunks), BATCH_SIZE):
+        batch = chunks[start:start + BATCH_SIZE]
+        ids = [f"{doc_id}_{start + i}" for i in range(len(batch))]
+        metadatas = [{"doc_id": doc_id, "source_type": source_type, "source_name": source_name} for _ in batch]
+        collection.add(documents=batch, ids=ids, metadatas=metadatas)
 
     conn = get_conn()
     conn.execute(
@@ -49,6 +57,14 @@ def add_pdf(file_bytes: bytes, filename: str) -> str:
     reader = PdfReader(io.BytesIO(file_bytes))
     text = "\n".join(page.extract_text() or "" for page in reader.pages)
     return _store(text, "pdf", filename)
+
+
+def add_image(file_bytes: bytes, filename: str, name: str | None = None) -> dict:
+    text = extract_text_from_image(file_bytes)
+    if not text:
+        return {"doc_id": None, "warning": "No readable text found in image."}
+    doc_id = _store(text, "image", name or filename)
+    return {"doc_id": doc_id, "extracted_preview": text[:200]}
 
 
 def add_url(url: str, name: str | None = None) -> str:
@@ -82,7 +98,8 @@ def delete_knowledge(doc_id: str) -> dict:
     existing = collection.get(where={"doc_id": {"$eq": doc_id}})
     ids = existing.get("ids", [])
     if ids:
-        collection.delete(ids=ids)
+        for start in range(0, len(ids), BATCH_SIZE):
+            collection.delete(ids=ids[start:start + BATCH_SIZE])
     conn = get_conn()
     conn.execute("DELETE FROM knowledge_meta WHERE id = ?", (doc_id,))
     conn.commit()
