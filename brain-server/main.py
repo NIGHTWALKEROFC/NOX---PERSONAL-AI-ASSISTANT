@@ -14,7 +14,7 @@ import config
 app = FastAPI(title="NOX Brain Server")
 init_db()
 
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB — generous for local personal use, prevents accidental huge uploads
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 
 class ChatRequest(BaseModel):
@@ -56,6 +56,10 @@ class CreateChatRequest(BaseModel):
 
 class RenameChatRequest(BaseModel):
     name: str
+
+
+class CodeExecutionRequest(BaseModel):
+    enabled: bool
 
 
 @app.get("/health")
@@ -191,6 +195,17 @@ def get_personality():
 def set_personality(req: PersonalityRequest):
     app_settings.set_personality(req.text)
     return {"saved": True}
+
+
+@app.get("/settings/code-execution")
+def get_code_execution():
+    return {"enabled": app_settings.is_code_execution_enabled()}
+
+
+@app.post("/settings/code-execution")
+def set_code_execution(req: CodeExecutionRequest):
+    app_settings.set_code_execution_enabled(req.enabled)
+    return {"enabled": req.enabled}
 
 
 @app.post("/chats")
