@@ -3,13 +3,21 @@ import requests
 import config
 
 BASE = config.SERVER_URL
+CURRENT_SESSION_ID = config.SESSION_ID
+
+
+def set_session(session_id: str):
+    global CURRENT_SESSION_ID
+    CURRENT_SESSION_ID = session_id
+
+
+def get_session() -> str:
+    return CURRENT_SESSION_ID
 
 
 def chat(message: str, speak: bool = False) -> dict:
     resp = requests.post(f"{BASE}/chat", json={
-        "session_id": config.SESSION_ID,
-        "message": message,
-        "speak": speak,
+        "session_id": CURRENT_SESSION_ID, "message": message, "speak": speak,
     })
     resp.raise_for_status()
     return resp.json()
@@ -18,16 +26,15 @@ def chat(message: str, speak: bool = False) -> dict:
 def chat_stream(message: str, speak: bool = False):
     resp = requests.post(
         f"{BASE}/chat/stream",
-        json={"session_id": config.SESSION_ID, "message": message, "speak": speak},
+        json={"session_id": CURRENT_SESSION_ID, "message": message, "speak": speak},
         stream=True,
     )
     resp.raise_for_status()
     for line in resp.iter_lines(decode_unicode=True):
         if not line or not line.startswith("data: "):
             continue
-        payload = line[len("data: "):]
         try:
-            yield json.loads(payload)
+            yield json.loads(line[len("data: "):])
         except json.JSONDecodeError:
             continue
 
@@ -50,15 +57,16 @@ def add_text_knowledge(text: str, name: str = "manual text") -> dict:
     return resp.json()
 
 
-def add_pdf_knowledge(file_path: str) -> dict:
+def add_pdf_knowledge(file_path: str, name: str | None = None) -> dict:
     with open(file_path, "rb") as f:
-        resp = requests.post(f"{BASE}/knowledge/pdf", files={"file": f})
+        data = {"name": name} if name else {}
+        resp = requests.post(f"{BASE}/knowledge/pdf", files={"file": f}, data=data)
     resp.raise_for_status()
     return resp.json()
 
 
-def add_url_knowledge(url: str) -> dict:
-    resp = requests.post(f"{BASE}/knowledge/url", json={"url": url})
+def add_url_knowledge(url: str, name: str | None = None) -> dict:
+    resp = requests.post(f"{BASE}/knowledge/url", json={"url": url, "name": name})
     resp.raise_for_status()
     return resp.json()
 
@@ -107,5 +115,29 @@ def get_personality() -> str:
 
 def set_personality(text: str) -> dict:
     resp = requests.post(f"{BASE}/settings/personality", json={"text": text})
+    resp.raise_for_status()
+    return resp.json()
+
+
+def create_chat(name: str | None = None) -> str:
+    resp = requests.post(f"{BASE}/chats", json={"name": name})
+    resp.raise_for_status()
+    return resp.json()["id"]
+
+
+def list_chats() -> list:
+    resp = requests.get(f"{BASE}/chats")
+    resp.raise_for_status()
+    return resp.json()
+
+
+def delete_chat(chat_id: str) -> dict:
+    resp = requests.delete(f"{BASE}/chats/{chat_id}")
+    resp.raise_for_status()
+    return resp.json()
+
+
+def save_chat_to_memory(chat_id: str) -> dict:
+    resp = requests.post(f"{BASE}/chats/{chat_id}/save-to-memory")
     resp.raise_for_status()
     return resp.json()
