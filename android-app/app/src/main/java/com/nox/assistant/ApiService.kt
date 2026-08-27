@@ -5,6 +5,8 @@ import okhttp3.RequestBody
 import okhttp3.ResponseBody
 import retrofit2.http.*
 
+data class ImageUploadResult(val doc_id: String?, val warning: String?, val extracted_preview: String?)
+
 interface ApiService {
     @POST("chat")
     suspend fun chat(@Body req: ChatRequest): ChatResponse
@@ -18,6 +20,10 @@ interface ApiService {
     @Multipart
     @POST("knowledge/pdf")
     suspend fun addPdfKnowledge(@Part file: MultipartBody.Part, @Part("name") name: RequestBody?): IdResponse
+
+    @Multipart
+    @POST("knowledge/image")
+    suspend fun addImageKnowledge(@Part file: MultipartBody.Part, @Part("name") name: RequestBody?): ImageUploadResult
 
     @POST("knowledge/url")
     suspend fun addUrlKnowledge(@Body req: UrlKnowledgeRequest): IdResponse
