@@ -1,9 +1,11 @@
+import logging
 import ollama
 from config import MODEL_NAME, SYSTEM_PROMPT
 import settings
 import tools
 
-HISTORY_TURNS = 12  # smaller window = less topic-bleeding between unrelated questions
+logger = logging.getLogger("nox.llm")
+HISTORY_TURNS = 12
 
 
 def _build_system_prompt() -> str:
@@ -29,6 +31,7 @@ def chat_stream(message: str, history: list[dict], context_chunks: list[str] | N
         msg = first["message"]
         tool_calls = msg.get("tool_calls") or []
     except Exception:
+        logger.exception("Tool-enabled ollama.chat call failed, falling back without tools")
         tool_calls = []
 
     if tool_calls:
@@ -42,6 +45,7 @@ def chat_stream(message: str, history: list[dict], context_chunks: list[str] | N
                 try:
                     result = fn(**fn_args) if fn_args else fn()
                 except Exception as e:
+                    logger.exception("Tool %s raised an exception", fn_name)
                     result = f"Error running {fn_name}: {e}"
             else:
                 result = f"Unknown tool: {fn_name}"
@@ -51,11 +55,16 @@ def chat_stream(message: str, history: list[dict], context_chunks: list[str] | N
     yield {"type": "status", "text": "Thinking..."}
 
     full_text = ""
-    for chunk in ollama.chat(model=MODEL_NAME, messages=messages, stream=True):
-        piece = chunk["message"]["content"]
-        if piece:
-            full_text += piece
-            yield {"type": "token", "text": piece}
+    try:
+        for chunk in ollama.chat(model=MODEL_NAME, messages=messages, stream=True):
+            piece = chunk["message"]["content"]
+            if piece:
+                full_text += piece
+                yield {"type": "token", "text": piece}
+    except Exception:
+        logger.exception("Streaming chat generation failed")
+        if not full_text:
+            full_text = "(something went wrong generating a reply — check nox.log for details)"
 
     yield {"type": "done", "reply": full_text}
 
@@ -69,7 +78,6 @@ def chat(message: str, history: list[dict], context_chunks: list[str] | None = N
 
 
 def summarize_chat_to_facts(messages: list[dict]) -> list[str]:
-    """Used by 'save chat to memory' — condenses a conversation into short standalone facts."""
     if not messages:
         return []
     transcript = "\n".join(f"{m['role']}: {m['content']}" for m in messages)
@@ -79,7 +87,11 @@ def summarize_chat_to_facts(messages: list[dict]) -> list[str]:
         "no extra commentary). If nothing is worth remembering, reply with just: NONE\n\n"
         f"{transcript}"
     )
-    response = ollama.chat(model=MODEL_NAME, messages=[{"role": "user", "content": prompt}])
+    try:
+        response = ollama.chat(model=MODEL_NAME, messages=[{"role": "user", "content": prompt}])
+    except Exception:
+        logger.exception("summarize_chat_to_facts failed")
+        return []
     text = response["message"]["content"].strip()
     if text.upper() == "NONE" or not text:
         return []
