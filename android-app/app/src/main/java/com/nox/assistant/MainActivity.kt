@@ -405,9 +405,13 @@ fun SettingsScreen() {
     var serverUrl by remember { mutableStateOf(Prefs.getServerUrl(context)) }
     var voiceEnabled by remember { mutableStateOf(Prefs.isVoiceEnabled(context)) }
     var personality by remember { mutableStateOf("") }
+    var codeExecEnabled by remember { mutableStateOf(false) }
     var savedMsg by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) { try { personality = ApiClient.get(context).getPersonality().text } catch (_: Exception) {} }
+    LaunchedEffect(Unit) {
+        try { personality = ApiClient.get(context).getPersonality().text } catch (_: Exception) {}
+        try { codeExecEnabled = ApiClient.get(context).getCodeExecution().enabled } catch (_: Exception) {}
+    }
 
     Column(Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState())) {
         Text("Brain server address (your laptop's local IP):", color = NoxTextSecondary)
@@ -438,6 +442,27 @@ fun SettingsScreen() {
                 catch (e: Exception) { savedMsg = "Could not save: ${e.message}" }
             }
         }, colors = ButtonDefaults.buttonColors(containerColor = NoxAccent)) { Text("Save Personality", color = NoxBackground) }
+
+        Spacer(Modifier.height(24.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Switch(
+                checked = codeExecEnabled,
+                onCheckedChange = { newVal ->
+                    codeExecEnabled = newVal
+                    scope.launch {
+                        try {
+                            ApiClient.get(context).setCodeExecution(CodeExecutionState(newVal))
+                            savedMsg = if (newVal) "Code execution ENABLED." else "Code execution disabled."
+                        } catch (e: Exception) {
+                            savedMsg = "Could not update: ${e.message}"
+                        }
+                    }
+                },
+                colors = SwitchDefaults.colors(checkedThumbColor = NoxAccent)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("Allow NOX to run code/commands on the laptop (off by default)", color = NoxTextPrimary)
+        }
 
         if (savedMsg != null) { Spacer(Modifier.height(8.dp)); Text(savedMsg!!, color = NoxTextSecondary) }
     }
