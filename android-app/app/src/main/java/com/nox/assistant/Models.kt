@@ -15,3 +15,4 @@ data class ChatSummary(val id: String, val name: String, val created_at: String,
 data class CreateChatRequest(val name: String? = null)
 data class CreateChatResponse(val id: String)
 data class SaveToMemoryResponse(val facts_saved: List<String>, val ids: List<Int>)
+data class CodeExecutionState(val enabled: Boolean)
