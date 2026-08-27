@@ -22,6 +22,11 @@ object Prefs {
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
             .getString(KEY_SESSION_ID, "android-main") ?: "android-main"
 
+    fun setSessionId(context: Context, sessionId: String) {
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+            .putString(KEY_SESSION_ID, sessionId).apply()
+    }
+
     fun isVoiceEnabled(context: Context): Boolean =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
             .getBoolean(KEY_VOICE_ENABLED, false)
