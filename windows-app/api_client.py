@@ -127,6 +127,18 @@ def set_personality(text: str) -> dict:
     return resp.json()
 
 
+def get_code_execution_enabled() -> bool:
+    resp = requests.get(f"{BASE}/settings/code-execution")
+    resp.raise_for_status()
+    return resp.json().get("enabled", False)
+
+
+def set_code_execution_enabled(enabled: bool) -> dict:
+    resp = requests.post(f"{BASE}/settings/code-execution", json={"enabled": enabled})
+    resp.raise_for_status()
+    return resp.json()
+
+
 def create_chat(name: str | None = None) -> str:
     resp = requests.post(f"{BASE}/chats", json={"name": name})
     resp.raise_for_status()
