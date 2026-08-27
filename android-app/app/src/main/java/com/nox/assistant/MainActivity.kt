@@ -3,10 +3,12 @@ package com.nox.assistant
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -41,9 +43,7 @@ class MainActivity : ComponentActivity() {
             Prefs.setGreetedThisSession(applicationContext, true)
         }
 
-        setContent {
-            NoxTheme { NoxApp() }
-        }
+        setContent { NoxTheme { NoxApp() } }
     }
 
     private fun requestNeededPermissions() {
@@ -62,12 +62,20 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun NoxApp() {
     var tab by remember { mutableStateOf(0) }
+    var showChatsDialog by remember { mutableStateOf(false) }
     val tabs = listOf("Chat", "Training", "Memory", "Settings")
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("NOX", color = NoxAccent) },
+                actions = {
+                    if (tab == 0) {
+                        TextButton(onClick = { showChatsDialog = true }) {
+                            Text("Chats", color = NoxAccent)
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = NoxSurface)
             )
         },
@@ -98,7 +106,79 @@ fun NoxApp() {
                 3 -> SettingsScreen()
             }
         }
+        if (showChatsDialog) {
+            ChatsDialog(onDismiss = { showChatsDialog = false })
+        }
     }
+}
+
+@Composable
+fun ChatsDialog(onDismiss: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var chats by remember { mutableStateOf(listOf<ChatSummary>()) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    fun refresh() {
+        scope.launch {
+            try {
+                chats = ApiClient.get(context).listChats()
+                error = null
+            } catch (e: Exception) {
+                error = e.message
+            }
+        }
+    }
+    LaunchedEffect(Unit) { refresh() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = NoxSurface,
+        title = { Text("Chats", color = NoxTextPrimary) },
+        text = {
+            Column {
+                if (error != null) Text("Error: $error", color = androidx.compose.ui.graphics.Color(0xFFE07A5F))
+                TextButton(onClick = {
+                    scope.launch {
+                        val newId = ApiClient.get(context).createChat(CreateChatRequest()).id
+                        Prefs.setSessionId(context, newId)
+                        onDismiss()
+                    }
+                }) { Text("+ New Chat", color = NoxAccent) }
+
+                LazyColumn(Modifier.heightIn(max = 300.dp)) {
+                    items(chats) { c ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(onClick = {
+                                Prefs.setSessionId(context, c.id)
+                                onDismiss()
+                            }) { Text(c.name, color = NoxTextPrimary) }
+                            Row {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        ApiClient.get(context).saveChatToMemory(c.id)
+                                    }
+                                }) { Text("Save", color = NoxAccent) }
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        ApiClient.get(context).deleteChat(c.id)
+                                        refresh()
+                                    }
+                                }) { Text("Delete", color = androidx.compose.ui.graphics.Color(0xFFE07A5F)) }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close", color = NoxAccent) }
+        }
+    )
 }
 
 sealed class ChatItem
@@ -110,12 +190,9 @@ data class StatusLine(val text: String) : ChatItem()
 fun ChatBubble(text: String, isUser: Boolean) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start) {
         Box(
-            Modifier
-                .padding(vertical = 4.dp)
-                .clip(RoundedCornerShape(14.dp))
+            Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp))
                 .background(if (isUser) NoxAccent else NoxSurface)
-                .padding(horizontal = 14.dp, vertical = 10.dp)
-                .widthIn(max = 280.dp)
+                .padding(horizontal = 14.dp, vertical = 10.dp).widthIn(max = 280.dp)
         ) {
             Text(text, color = if (isUser) NoxBackground else NoxTextPrimary)
         }
@@ -124,12 +201,7 @@ fun ChatBubble(text: String, isUser: Boolean) {
 
 @Composable
 fun StatusRow(text: String) {
-    Text(
-        "· $text",
-        color = NoxTextSecondary,
-        fontStyle = FontStyle.Italic,
-        modifier = Modifier.padding(vertical = 2.dp)
-    )
+    Text("· $text", color = NoxTextSecondary, fontStyle = FontStyle.Italic, modifier = Modifier.padding(vertical = 2.dp))
 }
 
 @Composable
@@ -173,9 +245,7 @@ fun ChatScreen() {
     }
 
     Column(Modifier.fillMaxSize().padding(12.dp)) {
-        if (error != null) {
-            Text("Connection error: $error", color = androidx.compose.ui.graphics.Color(0xFFE07A5F))
-        }
+        if (error != null) Text("Connection error: $error", color = androidx.compose.ui.graphics.Color(0xFFE07A5F))
         LazyColumn(Modifier.weight(1f)) {
             items(items) { item ->
                 when (item) {
@@ -184,15 +254,12 @@ fun ChatScreen() {
                     is StatusLine -> StatusRow(item.text)
                 }
             }
-            if (isStreaming) {
-                item { ChatBubble(streamingText.ifEmpty { "..." }, isUser = false) }
-            }
+            if (isStreaming) item { ChatBubble(streamingText.ifEmpty { "..." }, isUser = false) }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = input, onValueChange = { input = it },
-                modifier = Modifier.weight(1f), placeholder = { Text("Message NOX...") },
-                enabled = !sending
+                modifier = Modifier.weight(1f), placeholder = { Text("Message NOX...") }, enabled = !sending
             )
             Spacer(Modifier.width(8.dp))
             IconButton(onClick = {
@@ -201,23 +268,13 @@ fun ChatScreen() {
                 scope.launch {
                     val heard = PushToTalk.listenOnce(context)
                     listening = false
-                    if (heard.isNotBlank()) {
-                        input = ""
-                        sendMessage(heard)
-                    }
+                    if (heard.isNotBlank()) { input = ""; sendMessage(heard) }
                 }
-            }) {
-                Text(if (listening) "🎙️" else "🎤")
-            }
+            }) { Text(if (listening) "🎙️" else "🎤") }
             Spacer(Modifier.width(4.dp))
-            Button(
-                onClick = {
-                    val text = input.trim()
-                    input = ""
-                    sendMessage(text)
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = NoxAccent)
-            ) { Text("Send", color = NoxBackground) }
+            Button(onClick = {
+                val text = input.trim(); input = ""; sendMessage(text)
+            }, colors = ButtonDefaults.buttonColors(containerColor = NoxAccent)) { Text("Send", color = NoxBackground) }
         }
     }
 }
@@ -226,48 +283,45 @@ fun ChatScreen() {
 fun TrainingScreen() {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
+    var textName by remember { mutableStateOf("") }
     var textInput by remember { mutableStateOf("") }
+    var urlName by remember { mutableStateOf("") }
     var urlInput by remember { mutableStateOf("") }
     var items by remember { mutableStateOf(listOf<KnowledgeItem>()) }
     var error by remember { mutableStateOf<String?>(null) }
 
     fun refresh() {
         scope.launch {
-            try {
-                items = ApiClient.get(context).listKnowledge()
-                error = null
-            } catch (e: Exception) {
-                error = e.message ?: "could not reach the brain server"
-            }
+            try { items = ApiClient.get(context).listKnowledge(); error = null }
+            catch (e: Exception) { error = e.message ?: "could not reach the brain server" }
         }
     }
     LaunchedEffect(Unit) { refresh() }
 
     Column(Modifier.fillMaxSize().padding(12.dp)) {
         if (error != null) Text("Connection error: $error", color = androidx.compose.ui.graphics.Color(0xFFE07A5F))
+
+        OutlinedTextField(value = textName, onValueChange = { textName = it }, label = { Text("Name (optional)") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = textInput, onValueChange = { textInput = it }, label = { Text("Text to teach NOX") }, modifier = Modifier.fillMaxWidth())
         Button(onClick = {
             scope.launch {
                 try {
-                    ApiClient.get(context).addTextKnowledge(TextKnowledgeRequest(textInput))
-                    textInput = ""
-                } catch (e: Exception) {
-                    error = e.message ?: "could not reach the brain server"
-                }
+                    ApiClient.get(context).addTextKnowledge(TextKnowledgeRequest(textInput, textName.ifBlank { "manual text" }))
+                    textInput = ""; textName = ""
+                } catch (e: Exception) { error = e.message ?: "could not reach the brain server" }
                 refresh()
             }
         }, colors = ButtonDefaults.buttonColors(containerColor = NoxAccent)) { Text("Add Text", color = NoxBackground) }
 
         Spacer(Modifier.height(8.dp))
+        OutlinedTextField(value = urlName, onValueChange = { urlName = it }, label = { Text("Name (optional)") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = urlInput, onValueChange = { urlInput = it }, label = { Text("URL") }, modifier = Modifier.fillMaxWidth())
         Button(onClick = {
             scope.launch {
                 try {
-                    ApiClient.get(context).addUrlKnowledge(UrlKnowledgeRequest(urlInput))
-                    urlInput = ""
-                } catch (e: Exception) {
-                    error = e.message ?: "could not reach the brain server"
-                }
+                    ApiClient.get(context).addUrlKnowledge(UrlKnowledgeRequest(urlInput, urlName.ifBlank { null }))
+                    urlInput = ""; urlName = ""
+                } catch (e: Exception) { error = e.message ?: "could not reach the brain server" }
                 refresh()
             }
         }, colors = ButtonDefaults.buttonColors(containerColor = NoxAccent)) { Text("Add URL", color = NoxBackground) }
@@ -280,11 +334,8 @@ fun TrainingScreen() {
                     Text("[${item.source_type}] ${item.source_name}", color = NoxTextPrimary)
                     TextButton(onClick = {
                         scope.launch {
-                            try {
-                                ApiClient.get(context).deleteKnowledge(item.id)
-                            } catch (e: Exception) {
-                                error = e.message ?: "could not reach the brain server"
-                            }
+                            try { ApiClient.get(context).deleteKnowledge(item.id) }
+                            catch (e: Exception) { error = e.message ?: "could not reach the brain server" }
                             refresh()
                         }
                     }) { Text("Delete", color = NoxAccent) }
@@ -304,12 +355,8 @@ fun MemoryScreen() {
 
     fun refresh() {
         scope.launch {
-            try {
-                items = ApiClient.get(context).listMemory()
-                error = null
-            } catch (e: Exception) {
-                error = e.message ?: "could not reach the brain server"
-            }
+            try { items = ApiClient.get(context).listMemory(); error = null }
+            catch (e: Exception) { error = e.message ?: "could not reach the brain server" }
         }
     }
     LaunchedEffect(Unit) { refresh() }
@@ -319,12 +366,8 @@ fun MemoryScreen() {
         OutlinedTextField(value = input, onValueChange = { input = it }, label = { Text("Fact to remember") }, modifier = Modifier.fillMaxWidth())
         Button(onClick = {
             scope.launch {
-                try {
-                    ApiClient.get(context).addMemory(MemoryRequest(input))
-                    input = ""
-                } catch (e: Exception) {
-                    error = e.message ?: "could not reach the brain server"
-                }
+                try { ApiClient.get(context).addMemory(MemoryRequest(input)); input = "" }
+                catch (e: Exception) { error = e.message ?: "could not reach the brain server" }
                 refresh()
             }
         }, colors = ButtonDefaults.buttonColors(containerColor = NoxAccent)) { Text("Remember", color = NoxBackground) }
@@ -336,11 +379,8 @@ fun MemoryScreen() {
                     Text(item.fact, color = NoxTextPrimary)
                     TextButton(onClick = {
                         scope.launch {
-                            try {
-                                ApiClient.get(context).deleteMemory(item.id)
-                            } catch (e: Exception) {
-                                error = e.message ?: "could not reach the brain server"
-                            }
+                            try { ApiClient.get(context).deleteMemory(item.id) }
+                            catch (e: Exception) { error = e.message ?: "could not reach the brain server" }
                             refresh()
                         }
                     }) { Text("Forget", color = NoxAccent) }
@@ -360,62 +400,40 @@ fun SettingsScreen() {
     var savedMsg by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        try {
-            personality = ApiClient.get(context).getPersonality().text
-        } catch (_: Exception) {}
+        try { personality = ApiClient.get(context).getPersonality().text } catch (_: Exception) {}
     }
 
     Column(Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState())) {
         Text("Brain server address (your laptop's local IP):", color = NoxTextSecondary)
-        OutlinedTextField(
-            value = serverUrl, onValueChange = { serverUrl = it },
-            modifier = Modifier.fillMaxWidth()
-        )
+        OutlinedTextField(value = serverUrl, onValueChange = { serverUrl = it }, modifier = Modifier.fillMaxWidth())
         Button(onClick = {
-            Prefs.setServerUrl(context, serverUrl)
-            savedMsg = "Address saved."
+            Prefs.setServerUrl(context, serverUrl); savedMsg = "Address saved."
         }, colors = ButtonDefaults.buttonColors(containerColor = NoxAccent)) { Text("Save Address", color = NoxBackground) }
 
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(
-                checked = voiceEnabled,
-                onCheckedChange = {
-                    voiceEnabled = it
-                    Prefs.setVoiceEnabled(context, it)
-                    try {
-                        val intent = Intent(context, NoxWakeService::class.java)
-                        if (it) context.startForegroundService(intent) else context.stopService(intent)
-                    } catch (e: Exception) {
-                        savedMsg = "Voice service error: ${e.message}"
-                    }
-                },
-                colors = SwitchDefaults.colors(checkedThumbColor = NoxAccent)
-            )
+            Switch(checked = voiceEnabled, onCheckedChange = {
+                voiceEnabled = it
+                Prefs.setVoiceEnabled(context, it)
+                try {
+                    val intent = Intent(context, NoxWakeService::class.java)
+                    if (it) context.startForegroundService(intent) else context.stopService(intent)
+                } catch (e: Exception) { savedMsg = "Voice service error: ${e.message}" }
+            }, colors = SwitchDefaults.colors(checkedThumbColor = NoxAccent))
             Spacer(Modifier.width(8.dp))
             Text("Enable voice control (\"hey nox\" / \"nox sleep\")", color = NoxTextPrimary)
         }
 
         Spacer(Modifier.height(24.dp))
         Text("Custom personality / instructions for NOX:", color = NoxTextSecondary)
-        OutlinedTextField(
-            value = personality, onValueChange = { personality = it },
-            modifier = Modifier.fillMaxWidth().height(160.dp)
-        )
+        OutlinedTextField(value = personality, onValueChange = { personality = it }, modifier = Modifier.fillMaxWidth().height(160.dp))
         Button(onClick = {
             scope.launch {
-                try {
-                    ApiClient.get(context).setPersonality(PersonalityText(personality))
-                    savedMsg = "Personality saved."
-                } catch (e: Exception) {
-                    savedMsg = "Could not save: ${e.message}"
-                }
+                try { ApiClient.get(context).setPersonality(PersonalityText(personality)); savedMsg = "Personality saved." }
+                catch (e: Exception) { savedMsg = "Could not save: ${e.message}" }
             }
         }, colors = ButtonDefaults.buttonColors(containerColor = NoxAccent)) { Text("Save Personality", color = NoxBackground) }
 
-        if (savedMsg != null) {
-            Spacer(Modifier.height(8.dp))
-            Text(savedMsg!!, color = NoxTextSecondary)
-        }
+        if (savedMsg != null) { Spacer(Modifier.height(8.dp)); Text(savedMsg!!, color = NoxTextSecondary) }
     }
 }
