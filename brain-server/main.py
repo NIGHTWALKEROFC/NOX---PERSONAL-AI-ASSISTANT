@@ -1,5 +1,5 @@
 import json
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from llm import chat, chat_stream, summarize_chat_to_facts
@@ -13,6 +13,8 @@ import config
 
 app = FastAPI(title="NOX Brain Server")
 init_db()
+
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50MB — generous for local personal use, prevents accidental huge uploads
 
 
 class ChatRequest(BaseModel):
@@ -114,6 +116,13 @@ def get_audio(filename: str):
     return FileResponse(path, media_type="audio/wav")
 
 
+async def _read_upload_guarded(file: UploadFile) -> bytes:
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail=f"File too large (max {MAX_UPLOAD_BYTES // (1024*1024)}MB).")
+    return data
+
+
 @app.post("/knowledge/text")
 def knowledge_text(req: TextKnowledgeRequest):
     doc_id = knowledge.add_text(req.text, req.name)
@@ -122,9 +131,16 @@ def knowledge_text(req: TextKnowledgeRequest):
 
 @app.post("/knowledge/pdf")
 async def knowledge_pdf(file: UploadFile = File(...), name: str = Form(None)):
-    file_bytes = await file.read()
+    file_bytes = await _read_upload_guarded(file)
     doc_id = knowledge.add_pdf(file_bytes, name or file.filename)
     return {"doc_id": doc_id}
+
+
+@app.post("/knowledge/image")
+async def knowledge_image(file: UploadFile = File(...), name: str = Form(None)):
+    file_bytes = await _read_upload_guarded(file)
+    result = knowledge.add_image(file_bytes, file.filename, name)
+    return result
 
 
 @app.post("/knowledge/url")
