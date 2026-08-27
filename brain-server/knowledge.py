@@ -7,9 +7,7 @@ from chromadb.utils import embedding_functions
 from database import get_conn
 
 CHROMA_PATH = "data/chroma"
-embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-    model_name="all-MiniLM-L6-v2"
-)
+embed_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
 client = chromadb.PersistentClient(path=CHROMA_PATH)
 collection = client.get_or_create_collection("nox_knowledge", embedding_function=embed_fn)
 
@@ -28,7 +26,6 @@ def _store(text: str, source_type: str, source_name: str) -> str:
     chunks = _chunk(text)
     if not chunks:
         return doc_id
-
     ids = [f"{doc_id}_{i}" for i in range(len(chunks))]
     metadatas = [{"doc_id": doc_id, "source_type": source_type, "source_name": source_name} for _ in chunks]
     collection.add(documents=chunks, ids=ids, metadatas=metadatas)
@@ -54,13 +51,13 @@ def add_pdf(file_bytes: bytes, filename: str) -> str:
     return _store(text, "pdf", filename)
 
 
-def add_url(url: str) -> str:
+def add_url(url: str, name: str | None = None) -> str:
     resp = requests.get(url, timeout=15, headers={"User-Agent": "NOX-Assistant"})
     soup = BeautifulSoup(resp.text, "html.parser")
     for tag in soup(["script", "style"]):
         tag.decompose()
     text = " ".join(soup.get_text(separator=" ").split())
-    return _store(text, "url", url)
+    return _store(text, "url", name or url)
 
 
 def add_voice_transcript(text: str, name: str = "voice note") -> str:
@@ -71,8 +68,7 @@ def search(query: str, n_results: int = 4) -> list[str]:
     if collection.count() == 0:
         return []
     results = collection.query(query_texts=[query], n_results=n_results)
-    docs = results.get("documents", [[]])[0]
-    return docs
+    return results.get("documents", [[]])[0]
 
 
 def list_knowledge() -> list[dict]:
@@ -87,15 +83,9 @@ def delete_knowledge(doc_id: str) -> dict:
     ids = existing.get("ids", [])
     if ids:
         collection.delete(ids=ids)
-
     conn = get_conn()
     conn.execute("DELETE FROM knowledge_meta WHERE id = ?", (doc_id,))
     conn.commit()
     conn.close()
-
     still_present = collection.get(where={"doc_id": {"$eq": doc_id}})
-    return {
-        "deleted": doc_id,
-        "chunks_removed": len(ids),
-        "fully_removed": len(still_present.get("ids", [])) == 0,
-    }
+    return {"deleted": doc_id, "chunks_removed": len(ids), "fully_removed": len(still_present.get("ids", [])) == 0}
