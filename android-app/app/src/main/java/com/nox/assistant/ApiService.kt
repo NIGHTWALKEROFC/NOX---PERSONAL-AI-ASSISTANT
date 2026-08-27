@@ -1,6 +1,7 @@
 package com.nox.assistant
 
 import okhttp3.MultipartBody
+import okhttp3.RequestBody
 import okhttp3.ResponseBody
 import retrofit2.http.*
 
@@ -16,7 +17,7 @@ interface ApiService {
 
     @Multipart
     @POST("knowledge/pdf")
-    suspend fun addPdfKnowledge(@Part file: MultipartBody.Part): IdResponse
+    suspend fun addPdfKnowledge(@Part file: MultipartBody.Part, @Part("name") name: RequestBody?): IdResponse
 
     @POST("knowledge/url")
     suspend fun addUrlKnowledge(@Body req: UrlKnowledgeRequest): IdResponse
@@ -45,4 +46,16 @@ interface ApiService {
 
     @POST("settings/personality")
     suspend fun setPersonality(@Body req: PersonalityText): retrofit2.Response<Unit>
+
+    @POST("chats")
+    suspend fun createChat(@Body req: CreateChatRequest): CreateChatResponse
+
+    @GET("chats")
+    suspend fun listChats(): List<ChatSummary>
+
+    @DELETE("chats/{chatId}")
+    suspend fun deleteChat(@Path("chatId") chatId: String): retrofit2.Response<Unit>
+
+    @POST("chats/{chatId}/save-to-memory")
+    suspend fun saveChatToMemory(@Path("chatId") chatId: String): SaveToMemoryResponse
 }
