@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
     QLineEdit, QPushButton, QListWidget, QListWidgetItem,
-    QFileDialog, QLabel, QMessageBox, QTextEdit
+    QFileDialog, QLabel, QMessageBox, QTextEdit, QCheckBox
 )
 from PySide6.QtCore import Qt, QThread, Signal
 import api_client
@@ -262,6 +262,13 @@ class SettingsTab(QWidget):
         save_btn.clicked.connect(self.save)
         layout.addWidget(save_btn)
 
+        layout.addWidget(QLabel(""))
+        self.code_exec_checkbox = QCheckBox(
+            "Allow NOX to run Python code and shell commands on this PC (off by default)"
+        )
+        self.code_exec_checkbox.stateChanged.connect(self.toggle_code_execution)
+        layout.addWidget(self.code_exec_checkbox)
+
         self.ptt_btn = QPushButton("🎤 Push to Talk (5 sec, no wake word needed)")
         self.ptt_btn.clicked.connect(self.push_to_talk)
         layout.addWidget(self.ptt_btn)
@@ -279,6 +286,12 @@ class SettingsTab(QWidget):
             self.text_edit.setPlainText(api_client.get_personality())
         except Exception as e:
             self.status_label.setText(f"Could not load: {e}")
+        try:
+            self.code_exec_checkbox.blockSignals(True)
+            self.code_exec_checkbox.setChecked(api_client.get_code_execution_enabled())
+            self.code_exec_checkbox.blockSignals(False)
+        except Exception:
+            pass
 
     def save(self):
         try:
@@ -286,6 +299,15 @@ class SettingsTab(QWidget):
             self.status_label.setText("Saved.")
         except Exception as e:
             self.status_label.setText(f"Could not save: {e}")
+
+    def toggle_code_execution(self, state):
+        try:
+            api_client.set_code_execution_enabled(bool(state))
+            self.status_label.setText(
+                "Code execution ENABLED." if state else "Code execution disabled."
+            )
+        except Exception as e:
+            self.status_label.setText(f"Could not update: {e}")
 
     def push_to_talk(self):
         self.ptt_btn.setEnabled(False)
