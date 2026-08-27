@@ -53,6 +53,12 @@ interface ApiService {
     @POST("settings/personality")
     suspend fun setPersonality(@Body req: PersonalityText): retrofit2.Response<Unit>
 
+    @GET("settings/code-execution")
+    suspend fun getCodeExecution(): CodeExecutionState
+
+    @POST("settings/code-execution")
+    suspend fun setCodeExecution(@Body req: CodeExecutionState): CodeExecutionState
+
     @POST("chats")
     suspend fun createChat(@Body req: CreateChatRequest): CreateChatResponse
 
