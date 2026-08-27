@@ -2,18 +2,17 @@ import json
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
-from llm import chat, chat_stream
+from llm import chat, chat_stream, summarize_chat_to_facts
 from database import init_db
 import knowledge
 import memory as mem
 import voice
 import settings as app_settings
+import chats
 import config
 
 app = FastAPI(title="NOX Brain Server")
 init_db()
-
-sessions: dict[str, list[dict]] = {}
 
 
 class ChatRequest(BaseModel):
@@ -34,6 +33,7 @@ class TextKnowledgeRequest(BaseModel):
 
 class UrlKnowledgeRequest(BaseModel):
     url: str
+    name: str | None = None
 
 
 class MemoryRequest(BaseModel):
@@ -48,6 +48,14 @@ class PersonalityRequest(BaseModel):
     text: str
 
 
+class CreateChatRequest(BaseModel):
+    name: str | None = None
+
+
+class RenameChatRequest(BaseModel):
+    name: str
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "model": config.MODEL_NAME}
@@ -55,13 +63,12 @@ def health():
 
 @app.post("/chat", response_model=ChatResponse)
 def chat_endpoint(req: ChatRequest):
-    history = sessions.get(req.session_id, [])
+    history = chats.get_messages(req.session_id)
     context_chunks = knowledge.search(req.message)
     reply = chat(req.message, history, context_chunks)
 
-    history.append({"role": "user", "content": req.message})
-    history.append({"role": "assistant", "content": reply})
-    sessions[req.session_id] = history[-20:]
+    chats.append_message(req.session_id, "user", req.message, first_message_for_naming=req.message)
+    chats.append_message(req.session_id, "assistant", reply)
 
     audio_url = None
     if req.speak:
@@ -73,7 +80,7 @@ def chat_endpoint(req: ChatRequest):
 
 @app.post("/chat/stream")
 def chat_stream_endpoint(req: ChatRequest):
-    history = sessions.get(req.session_id, [])
+    history = chats.get_messages(req.session_id)
     context_chunks = knowledge.search(req.message)
 
     def event_generator():
@@ -81,9 +88,8 @@ def chat_stream_endpoint(req: ChatRequest):
         for event in chat_stream(req.message, history, context_chunks):
             if event["type"] == "done":
                 full_reply = event["reply"]
-                history.append({"role": "user", "content": req.message})
-                history.append({"role": "assistant", "content": full_reply})
-                sessions[req.session_id] = history[-20:]
+                chats.append_message(req.session_id, "user", req.message, first_message_for_naming=req.message)
+                chats.append_message(req.session_id, "assistant", full_reply)
 
                 audio_url = None
                 if req.speak and full_reply:
@@ -115,15 +121,15 @@ def knowledge_text(req: TextKnowledgeRequest):
 
 
 @app.post("/knowledge/pdf")
-async def knowledge_pdf(file: UploadFile = File(...)):
+async def knowledge_pdf(file: UploadFile = File(...), name: str = Form(None)):
     file_bytes = await file.read()
-    doc_id = knowledge.add_pdf(file_bytes, file.filename)
+    doc_id = knowledge.add_pdf(file_bytes, name or file.filename)
     return {"doc_id": doc_id}
 
 
 @app.post("/knowledge/url")
 def knowledge_url(req: UrlKnowledgeRequest):
-    doc_id = knowledge.add_url(req.url)
+    doc_id = knowledge.add_url(req.url, req.name)
     return {"doc_id": doc_id}
 
 
@@ -169,3 +175,39 @@ def get_personality():
 def set_personality(req: PersonalityRequest):
     app_settings.set_personality(req.text)
     return {"saved": True}
+
+
+@app.post("/chats")
+def create_chat(req: CreateChatRequest):
+    chat_id = chats.create_chat(req.name)
+    return {"id": chat_id}
+
+
+@app.get("/chats")
+def list_chats():
+    return chats.list_chats()
+
+
+@app.get("/chats/{chat_id}/messages")
+def get_chat_messages(chat_id: str):
+    return chats.get_messages(chat_id)
+
+
+@app.delete("/chats/{chat_id}")
+def delete_chat(chat_id: str):
+    chats.delete_chat(chat_id)
+    return {"deleted": chat_id}
+
+
+@app.put("/chats/{chat_id}/name")
+def rename_chat(chat_id: str, req: RenameChatRequest):
+    chats.rename_chat(chat_id, req.name)
+    return {"renamed": chat_id, "name": req.name}
+
+
+@app.post("/chats/{chat_id}/save-to-memory")
+def save_chat_to_memory(chat_id: str):
+    messages = chats.get_messages(chat_id)
+    facts = summarize_chat_to_facts(messages)
+    saved_ids = [mem.remember(fact) for fact in facts]
+    return {"facts_saved": facts, "ids": saved_ids}
