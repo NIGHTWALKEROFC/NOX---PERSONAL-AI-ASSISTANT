@@ -71,9 +71,7 @@ fun NoxApp() {
                 title = { Text("NOX", color = NoxAccent) },
                 actions = {
                     if (tab == 0) {
-                        TextButton(onClick = { showChatsDialog = true }) {
-                            Text("Chats", color = NoxAccent)
-                        }
+                        TextButton(onClick = { showChatsDialog = true }) { Text("Chats", color = NoxAccent) }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = NoxSurface)
@@ -83,14 +81,9 @@ fun NoxApp() {
             NavigationBar(containerColor = NoxSurface) {
                 tabs.forEachIndexed { i, label ->
                     NavigationBarItem(
-                        selected = tab == i,
-                        onClick = { tab = i },
-                        icon = {},
-                        label = { Text(label) },
+                        selected = tab == i, onClick = { tab = i }, icon = {}, label = { Text(label) },
                         colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = NoxAccent,
-                            selectedTextColor = NoxAccent,
-                            indicatorColor = NoxSurfaceVariant
+                            selectedIconColor = NoxAccent, selectedTextColor = NoxAccent, indicatorColor = NoxSurfaceVariant
                         )
                     )
                 }
@@ -106,9 +99,7 @@ fun NoxApp() {
                 3 -> SettingsScreen()
             }
         }
-        if (showChatsDialog) {
-            ChatsDialog(onDismiss = { showChatsDialog = false })
-        }
+        if (showChatsDialog) ChatsDialog(onDismiss = { showChatsDialog = false })
     }
 }
 
@@ -121,12 +112,8 @@ fun ChatsDialog(onDismiss: () -> Unit) {
 
     fun refresh() {
         scope.launch {
-            try {
-                chats = ApiClient.get(context).listChats()
-                error = null
-            } catch (e: Exception) {
-                error = e.message
-            }
+            try { chats = ApiClient.get(context).listChats(); error = null }
+            catch (e: Exception) { error = e.message }
         }
     }
     LaunchedEffect(Unit) { refresh() }
@@ -150,34 +137,25 @@ fun ChatsDialog(onDismiss: () -> Unit) {
                     items(chats) { c ->
                         Row(
                             Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
                         ) {
-                            TextButton(onClick = {
-                                Prefs.setSessionId(context, c.id)
-                                onDismiss()
-                            }) { Text(c.name, color = NoxTextPrimary) }
+                            TextButton(onClick = { Prefs.setSessionId(context, c.id); onDismiss() }) {
+                                Text(c.name, color = NoxTextPrimary)
+                            }
                             Row {
-                                TextButton(onClick = {
-                                    scope.launch {
-                                        ApiClient.get(context).saveChatToMemory(c.id)
-                                    }
-                                }) { Text("Save", color = NoxAccent) }
-                                TextButton(onClick = {
-                                    scope.launch {
-                                        ApiClient.get(context).deleteChat(c.id)
-                                        refresh()
-                                    }
-                                }) { Text("Delete", color = androidx.compose.ui.graphics.Color(0xFFE07A5F)) }
+                                TextButton(onClick = { scope.launch { ApiClient.get(context).saveChatToMemory(c.id) } }) {
+                                    Text("Save", color = NoxAccent)
+                                }
+                                TextButton(onClick = { scope.launch { ApiClient.get(context).deleteChat(c.id); refresh() } }) {
+                                    Text("Delete", color = androidx.compose.ui.graphics.Color(0xFFE07A5F))
+                                }
                             }
                         }
                     }
                 }
             }
         },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close", color = NoxAccent) }
-        }
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close", color = NoxAccent) } }
     )
 }
 
@@ -193,9 +171,7 @@ fun ChatBubble(text: String, isUser: Boolean) {
             Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp))
                 .background(if (isUser) NoxAccent else NoxSurface)
                 .padding(horizontal = 14.dp, vertical = 10.dp).widthIn(max = 280.dp)
-        ) {
-            Text(text, color = if (isUser) NoxBackground else NoxTextPrimary)
-        }
+        ) { Text(text, color = if (isUser) NoxBackground else NoxTextPrimary) }
     }
 }
 
@@ -219,27 +195,17 @@ fun ChatScreen() {
     fun sendMessage(text: String) {
         if (text.isBlank() || sending) return
         items.add(UserMessage(text))
-        error = null
-        sending = true
-        isStreaming = true
-        streamingText = ""
+        error = null; sending = true; isStreaming = true; streamingText = ""
         scope.launch {
             try {
                 StreamClient.chatStream(context, text) { event ->
                     when (event.type) {
                         "status" -> items.add(StatusLine(event.text ?: ""))
                         "token" -> streamingText += event.text ?: ""
-                        "done" -> {
-                            items.add(AssistantMessage(event.reply ?: streamingText))
-                            isStreaming = false
-                            streamingText = ""
-                        }
+                        "done" -> { items.add(AssistantMessage(event.reply ?: streamingText)); isStreaming = false; streamingText = "" }
                     }
                 }
-            } catch (e: Exception) {
-                error = e.message ?: "could not reach the brain server"
-                isStreaming = false
-            }
+            } catch (e: Exception) { error = e.message ?: "could not reach the brain server"; isStreaming = false }
             sending = false
         }
     }
@@ -258,8 +224,8 @@ fun ChatScreen() {
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
-                value = input, onValueChange = { input = it },
-                modifier = Modifier.weight(1f), placeholder = { Text("Message NOX...") }, enabled = !sending
+                value = input, onValueChange = { input = it }, modifier = Modifier.weight(1f),
+                placeholder = { Text("Message NOX...") }, enabled = !sending
             )
             Spacer(Modifier.width(8.dp))
             IconButton(onClick = {
@@ -272,9 +238,8 @@ fun ChatScreen() {
                 }
             }) { Text(if (listening) "🎙️" else "🎤") }
             Spacer(Modifier.width(4.dp))
-            Button(onClick = {
-                val text = input.trim(); input = ""; sendMessage(text)
-            }, colors = ButtonDefaults.buttonColors(containerColor = NoxAccent)) { Text("Send", color = NoxBackground) }
+            Button(onClick = { val text = input.trim(); input = ""; sendMessage(text) },
+                colors = ButtonDefaults.buttonColors(containerColor = NoxAccent)) { Text("Send", color = NoxBackground) }
         }
     }
 }
@@ -287,8 +252,11 @@ fun TrainingScreen() {
     var textInput by remember { mutableStateOf("") }
     var urlName by remember { mutableStateOf("") }
     var urlInput by remember { mutableStateOf("") }
+    var pdfName by remember { mutableStateOf("") }
+    var imageName by remember { mutableStateOf("") }
     var items by remember { mutableStateOf(listOf<KnowledgeItem>()) }
     var error by remember { mutableStateOf<String?>(null) }
+    var infoMsg by remember { mutableStateOf<String?>(null) }
 
     fun refresh() {
         scope.launch {
@@ -298,8 +266,40 @@ fun TrainingScreen() {
     }
     LaunchedEffect(Unit) { refresh() }
 
-    Column(Modifier.fillMaxSize().padding(12.dp)) {
+    val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val file = FileUpload.uriToTempFile(context, uri)
+            if (file == null) { error = "File too large or unreadable (max 50MB)."; return@launch }
+            try {
+                val part = FileUpload.buildPart(file, "file", "application/pdf")
+                ApiClient.get(context).addPdfKnowledge(part, FileUpload.buildNamePart(pdfName.ifBlank { null }))
+                pdfName = ""
+            } catch (e: Exception) { error = e.message ?: "upload failed" }
+            file.delete()
+            refresh()
+        }
+    }
+
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val file = FileUpload.uriToTempFile(context, uri)
+            if (file == null) { error = "File too large or unreadable (max 50MB)."; return@launch }
+            try {
+                val part = FileUpload.buildPart(file, "file", "image/*")
+                val result = ApiClient.get(context).addImageKnowledge(part, FileUpload.buildNamePart(imageName.ifBlank { null }))
+                infoMsg = result.warning ?: result.extracted_preview
+                imageName = ""
+            } catch (e: Exception) { error = e.message ?: "upload failed" }
+            file.delete()
+            refresh()
+        }
+    }
+
+    Column(Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState())) {
         if (error != null) Text("Connection error: $error", color = androidx.compose.ui.graphics.Color(0xFFE07A5F))
+        if (infoMsg != null) { Text("Extracted: $infoMsg", color = NoxTextSecondary); Spacer(Modifier.height(8.dp)) }
 
         OutlinedTextField(value = textName, onValueChange = { textName = it }, label = { Text("Name (optional)") }, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(value = textInput, onValueChange = { textInput = it }, label = { Text("Text to teach NOX") }, modifier = Modifier.fillMaxWidth())
@@ -326,20 +326,28 @@ fun TrainingScreen() {
             }
         }, colors = ButtonDefaults.buttonColors(containerColor = NoxAccent)) { Text("Add URL", color = NoxBackground) }
 
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(value = pdfName, onValueChange = { pdfName = it }, label = { Text("Name (optional, defaults to filename)") }, modifier = Modifier.fillMaxWidth())
+        Button(onClick = { pdfPicker.launch("application/pdf") },
+            colors = ButtonDefaults.buttonColors(containerColor = NoxAccent)) { Text("Add PDF File", color = NoxBackground) }
+
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(value = imageName, onValueChange = { imageName = it }, label = { Text("Name (optional, defaults to filename)") }, modifier = Modifier.fillMaxWidth())
+        Button(onClick = { imagePicker.launch("image/*") },
+            colors = ButtonDefaults.buttonColors(containerColor = NoxAccent)) { Text("Add Image (OCR text extraction)", color = NoxBackground) }
+
         Spacer(Modifier.height(12.dp))
         Text("Trained knowledge:", color = NoxTextSecondary)
-        LazyColumn(Modifier.weight(1f)) {
-            items(items) { item ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("[${item.source_type}] ${item.source_name}", color = NoxTextPrimary)
-                    TextButton(onClick = {
-                        scope.launch {
-                            try { ApiClient.get(context).deleteKnowledge(item.id) }
-                            catch (e: Exception) { error = e.message ?: "could not reach the brain server" }
-                            refresh()
-                        }
-                    }) { Text("Delete", color = NoxAccent) }
-                }
+        items.forEach { item ->
+            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("[${item.source_type}] ${item.source_name}", color = NoxTextPrimary)
+                TextButton(onClick = {
+                    scope.launch {
+                        try { ApiClient.get(context).deleteKnowledge(item.id) }
+                        catch (e: Exception) { error = e.message ?: "could not reach the brain server" }
+                        refresh()
+                    }
+                }) { Text("Delete", color = NoxAccent) }
             }
         }
     }
@@ -399,16 +407,13 @@ fun SettingsScreen() {
     var personality by remember { mutableStateOf("") }
     var savedMsg by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
-        try { personality = ApiClient.get(context).getPersonality().text } catch (_: Exception) {}
-    }
+    LaunchedEffect(Unit) { try { personality = ApiClient.get(context).getPersonality().text } catch (_: Exception) {} }
 
     Column(Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState())) {
         Text("Brain server address (your laptop's local IP):", color = NoxTextSecondary)
         OutlinedTextField(value = serverUrl, onValueChange = { serverUrl = it }, modifier = Modifier.fillMaxWidth())
-        Button(onClick = {
-            Prefs.setServerUrl(context, serverUrl); savedMsg = "Address saved."
-        }, colors = ButtonDefaults.buttonColors(containerColor = NoxAccent)) { Text("Save Address", color = NoxBackground) }
+        Button(onClick = { Prefs.setServerUrl(context, serverUrl); savedMsg = "Address saved." },
+            colors = ButtonDefaults.buttonColors(containerColor = NoxAccent)) { Text("Save Address", color = NoxBackground) }
 
         Spacer(Modifier.height(16.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
