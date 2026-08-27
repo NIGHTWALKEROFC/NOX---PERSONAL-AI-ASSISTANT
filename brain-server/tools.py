@@ -1,11 +1,30 @@
 import re
 import socket
 import subprocess
+import requests
+from bs4 import BeautifulSoup
 import psutil
 
 _HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9.\-]{1,253}$")
 
 TOOL_DEFINITIONS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": (
+                "Search the live internet for current information — news, recent releases, "
+                "today's date-sensitive facts, anything that might have changed since training. "
+                "Use this whenever the user asks about something recent, current, or time-sensitive "
+                "(e.g. 'latest movies', 'current version of X', 'what happened today')."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string", "description": "Search query"}},
+                "required": ["query"]
+            }
+        }
+    },
     {
         "type": "function",
         "function": {
@@ -41,7 +60,7 @@ TOOL_DEFINITIONS = [
             "description": "Resolve a hostname to its IP address(es) (read-only DNS lookup).",
             "parameters": {
                 "type": "object",
-                "properties": {"hostname": {"type": "string", "description": "Hostname to resolve, e.g. example.com"}},
+                "properties": {"hostname": {"type": "string", "description": "Hostname to resolve"}},
                 "required": ["hostname"]
             }
         }
@@ -50,7 +69,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "ping_host",
-            "description": "Ping a host a few times to check reachability and latency (read-only, no packet crafting).",
+            "description": "Ping a host a few times to check reachability and latency (read-only).",
             "parameters": {
                 "type": "object",
                 "properties": {"host": {"type": "string", "description": "Hostname or IP to ping"}},
@@ -72,13 +91,32 @@ TOOL_DEFINITIONS = [
             "name": "run_recon",
             "description": (
                 "Run a full read-only recon checklist: processes, open ports, network info, "
-                "and nearby Wi-Fi networks, combined into one summary. Use this when the user "
-                "asks for a 'recon', 'scan', 'checkup', or similar broad system overview."
+                "and nearby Wi-Fi networks, combined into one summary."
             ),
             "parameters": {"type": "object", "properties": {}, "required": []}
         }
     },
 ]
+
+
+def web_search(query: str) -> str:
+    try:
+        resp = requests.get(
+            "https://html.duckduckgo.com/html/",
+            params={"q": query},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=10,
+        )
+        soup = BeautifulSoup(resp.text, "html.parser")
+        results = []
+        for a in soup.select(".result__a")[:5]:
+            title = a.get_text(strip=True)
+            link = a.get("href", "")
+            if title:
+                results.append(f"{title} — {link}")
+        return "\n".join(results) if results else "No results found."
+    except Exception as e:
+        return f"Search failed: {e}"
 
 
 def list_processes(limit: int = 15) -> str:
@@ -137,10 +175,7 @@ def ping_host(host: str) -> str:
     if not host or not _HOSTNAME_RE.match(host):
         return "Invalid host."
     try:
-        result = subprocess.run(
-            ["ping", "-n", "4", host],
-            capture_output=True, text=True, timeout=15
-        )
+        result = subprocess.run(["ping", "-n", "4", host], capture_output=True, text=True, timeout=15)
         return result.stdout.strip() or result.stderr.strip() or "No output from ping."
     except subprocess.TimeoutExpired:
         return f"Ping to {host} timed out."
@@ -164,19 +199,16 @@ def wifi_scan() -> str:
 
 def run_recon() -> str:
     parts = [
-        "=== Processes (top 5 by memory) ===",
-        list_processes(5),
-        "\n=== Open TCP Ports ===",
-        check_open_ports(),
-        "\n=== Network Info ===",
-        network_info(),
-        "\n=== Nearby Wi-Fi Networks ===",
-        wifi_scan(),
+        "=== Processes (top 5 by memory) ===", list_processes(5),
+        "\n=== Open TCP Ports ===", check_open_ports(),
+        "\n=== Network Info ===", network_info(),
+        "\n=== Nearby Wi-Fi Networks ===", wifi_scan(),
     ]
     return "\n".join(parts)
 
 
 TOOL_FUNCTIONS = {
+    "web_search": web_search,
     "list_processes": list_processes,
     "check_open_ports": check_open_ports,
     "network_info": network_info,
