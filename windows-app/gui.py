@@ -43,6 +43,14 @@ class TrainingTab(QWidget):
         pdf_row.addWidget(self.pdf_name_input)
         pdf_row.addWidget(pdf_btn)
 
+        image_row = QHBoxLayout()
+        self.image_name_input = QLineEdit()
+        self.image_name_input.setPlaceholderText("Name (optional, defaults to filename)")
+        image_btn = QPushButton("Add Image (text will be extracted via OCR)")
+        image_btn.clicked.connect(self.add_image)
+        image_row.addWidget(self.image_name_input)
+        image_row.addWidget(image_btn)
+
         self.list_widget = QListWidget()
         refresh_btn = QPushButton("Refresh List")
         refresh_btn.clicked.connect(self.refresh)
@@ -52,6 +60,7 @@ class TrainingTab(QWidget):
         layout.addLayout(text_row)
         layout.addLayout(url_row)
         layout.addLayout(pdf_row)
+        layout.addLayout(image_row)
         layout.addWidget(QLabel("Trained knowledge:"))
         layout.addWidget(self.list_widget)
         layout.addWidget(refresh_btn)
@@ -95,6 +104,22 @@ class TrainingTab(QWidget):
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))
         self.pdf_name_input.clear()
+        self.refresh()
+
+    def add_image(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Select Image", "", "Images (*.png *.jpg *.jpeg *.bmp *.webp)")
+        if not path:
+            return
+        name = self.image_name_input.text().strip() or None
+        try:
+            result = api_client.add_image_knowledge(path, name)
+            if result.get("warning"):
+                QMessageBox.information(self, "Note", result["warning"])
+            elif result.get("extracted_preview"):
+                QMessageBox.information(self, "Text extracted", result["extracted_preview"])
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
+        self.image_name_input.clear()
         self.refresh()
 
     def refresh(self):
