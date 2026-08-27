@@ -1,4 +1,13 @@
 import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+
+LOG_DIR = Path(__file__).parent / "data"
+LOG_DIR.mkdir(exist_ok=True)
+_file_handler = RotatingFileHandler(LOG_DIR / "windows-app.log", maxBytes=5*1024*1024, backupCount=5, encoding="utf-8")
+_file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+logging.getLogger().addHandler(_file_handler)
+logging.getLogger().setLevel(logging.INFO)
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 
 import sys
@@ -11,6 +20,8 @@ from rich.theme import Theme
 import api_client
 from voice_engine import VoiceEngine
 from paste_safe_input import PasteSafeInput
+
+logger = logging.getLogger("nox.windows_app")
 
 nox_theme = Theme({
     "you": "bold #A8C7FA",
@@ -35,18 +46,15 @@ def print_nox_reply(text: str):
 
 def stream_chat_to_terminal(text: str):
     full = ""
-    saw_status = False
     with console.status("[status]thinking...[/status]", spinner="dots") as status:
         try:
             for event in api_client.chat_stream(text, speak=False):
                 if event["type"] == "status":
                     status.update(f"[status]{event['text']}[/status]")
-                    saw_status = True
                 elif event["type"] == "token":
                     full += event["text"]
-                elif event["type"] == "done":
-                    pass
         except Exception as e:
+            logger.exception("Terminal chat request failed")
             console.print(f"\n[err]Error:[/err] {e}")
             return
     print_nox_reply(full if full else "(no response)")
@@ -75,7 +83,7 @@ def print_help():
     console.print(Panel(
         "[bold]/new[/bold]              start a new named chat\n"
         "[bold]/chats[/bold]            list saved chats\n"
-        "[bold]/load <id-start>[/bold]  switch to a chat (paste first few characters of its id)\n"
+        "[bold]/load <id-start>[/bold]  switch to a chat\n"
         "[bold]/delete <id-start>[/bold] delete a saved chat\n"
         "[bold]/savechat[/bold]         summarize the current chat into long-term memory\n"
         "[bold]/help[/bold]             show this again\n"
@@ -92,6 +100,7 @@ def resolve_chat_id(prefix: str) -> str | None:
 
 
 def run_chat_terminal():
+    logger.info("NOX windows-app started")
     console.print(Panel(
         f"NOX is online. Chat: [status]{api_client.get_session()[:8]}[/status]\n"
         "Type a message and press Enter, or speak \"hey nox\" out loud.\n"
