@@ -170,8 +170,10 @@ fun ChatBubble(text: String, isUser: Boolean) {
         Box(
             Modifier.padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp))
                 .background(if (isUser) NoxAccent else NoxSurface)
-                .padding(horizontal = 14.dp, vertical = 10.dp).widthIn(max = 280.dp)
-        ) { Text(text, color = if (isUser) NoxBackground else NoxTextPrimary) }
+                .padding(horizontal = 14.dp, vertical = 10.dp).widthIn(max = 300.dp)
+        ) {
+            RichMessageContent(text, textColor = if (isUser) NoxBackground else NoxTextPrimary)
+        }
     }
 }
 
