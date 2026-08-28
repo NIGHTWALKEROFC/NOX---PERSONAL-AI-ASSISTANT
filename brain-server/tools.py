@@ -1,4 +1,5 @@
 import re
+import os
 import socket
 import subprocess
 import logging
@@ -12,6 +13,7 @@ logger = logging.getLogger("nox.tools")
 _HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9.\-]{1,253}$")
 CODE_TIMEOUT_SECONDS = 20
 MAX_OUTPUT_CHARS = 4000
+MAX_FILE_READ_CHARS = 20000
 
 TOOL_DEFINITIONS = [
     {
@@ -108,8 +110,7 @@ TOOL_DEFINITIONS = [
             "description": (
                 "Execute a short Python snippet on this local machine and return its output. "
                 "Runs with the same permissions as NOX itself, on Nightwalker's own computer only. "
-                "Use for calculations, quick scripts, or automating a task he explicitly asked for. "
-                "Requires code execution to be enabled in NOX Settings — if disabled, this will refuse."
+                "Requires code execution to be enabled in NOX Settings."
             ),
             "parameters": {
                 "type": "object",
@@ -125,13 +126,54 @@ TOOL_DEFINITIONS = [
             "description": (
                 "Execute a shell/command-line command on this local Windows machine and return its output. "
                 "Runs with the same permissions as NOX itself, on Nightwalker's own computer only — never "
-                "targets other machines. Use for local system tasks he explicitly asks for. "
-                "Requires code execution to be enabled in NOX Settings — if disabled, this will refuse."
+                "targets other machines. Requires code execution to be enabled in NOX Settings."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {"command": {"type": "string", "description": "Command to run"}},
                 "required": ["command"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read a text file from this local machine (up to ~20000 characters). Requires code execution enabled.",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "Full file path to read"}},
+                "required": ["path"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": (
+                "Write or overwrite a text file on this local machine — use this to create or edit "
+                "code files for the user. Requires code execution enabled."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Full file path to write"},
+                    "content": {"type": "string", "description": "Full content to write to the file"}
+                },
+                "required": ["path", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_directory",
+            "description": "List files/folders in a directory on this local machine. Requires code execution enabled.",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string", "description": "Directory path, defaults to current directory"}},
+                "required": []
             }
         }
     },
@@ -289,6 +331,46 @@ def run_shell(command: str) -> str:
         return f"Execution error: {e}"
 
 
+def read_file(path: str) -> str:
+    if not settings.is_code_execution_enabled():
+        return "Code execution is currently disabled. Enable it in NOX Settings first."
+    logger.info("read_file: %s", path)
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read(MAX_FILE_READ_CHARS)
+        return content if content else "(empty file)"
+    except Exception as e:
+        logger.exception("read_file failed")
+        return f"Could not read file: {e}"
+
+
+def write_file(path: str, content: str) -> str:
+    if not settings.is_code_execution_enabled():
+        return "Code execution is currently disabled. Enable it in NOX Settings first."
+    logger.info("write_file: %s (%d chars)", path, len(content))
+    try:
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return f"Wrote {len(content)} characters to {path}"
+    except Exception as e:
+        logger.exception("write_file failed")
+        return f"Could not write file: {e}"
+
+
+def list_directory(path: str = ".") -> str:
+    if not settings.is_code_execution_enabled():
+        return "Code execution is currently disabled. Enable it in NOX Settings first."
+    try:
+        entries = os.listdir(path)
+        return "\n".join(entries) if entries else "(empty directory)"
+    except Exception as e:
+        logger.exception("list_directory failed")
+        return f"Could not list directory: {e}"
+
+
 TOOL_FUNCTIONS = {
     "web_search": web_search,
     "list_processes": list_processes,
@@ -300,4 +382,7 @@ TOOL_FUNCTIONS = {
     "run_recon": run_recon,
     "run_python": run_python,
     "run_shell": run_shell,
+    "read_file": read_file,
+    "write_file": write_file,
+    "list_directory": list_directory,
 }
