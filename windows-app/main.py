@@ -31,6 +31,10 @@ nox_theme = Theme({
 })
 console = Console(theme=nox_theme)
 
+# Dracula gives a Claude-like dark, warm-toned code block. Change to any
+# Pygments style name (e.g. "monokai", "one-dark") if you'd prefer a different look.
+CODE_THEME = "dracula"
+
 
 def print_status(text: str):
     console.print(f"  · {text}", style="status")
@@ -39,7 +43,7 @@ def print_status(text: str):
 def print_nox_reply(text: str):
     console.print("[nox]NOX[/nox] ", end="")
     try:
-        console.print(Markdown(text))
+        console.print(Markdown(text, code_theme=CODE_THEME, inline_code_theme=CODE_THEME))
     except Exception:
         console.print(text)
 
