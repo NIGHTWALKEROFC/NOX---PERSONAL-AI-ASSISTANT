@@ -1,6 +1,6 @@
 import logging
 import ollama
-from config import MODEL_NAME, SYSTEM_PROMPT
+from config import MODEL_NAME, SYSTEM_PROMPT, NUM_CTX
 import settings
 import tools
 
@@ -26,17 +26,35 @@ def chat_stream(message: str, history: list[dict], context_chunks: list[str] | N
     messages.extend(history[-HISTORY_TURNS:])
     messages.append({"role": "user", "content": message})
 
-    try:
-        first = ollama.chat(model=MODEL_NAME, messages=messages, tools=tools.TOOL_DEFINITIONS)
-        msg = first["message"]
-        tool_calls = msg.get("tool_calls") or []
-    except Exception:
-        logger.exception("Tool-enabled ollama.chat call failed, falling back without tools")
-        tool_calls = []
+    yield {"type": "status", "text": "Thinking..."}
 
-    if tool_calls:
-        messages.append(msg)
-        for call in tool_calls:
+    full_text = ""
+    collected_tool_calls = []
+
+    # Single streaming call, tools included — the previous version always ran
+    # a separate non-streaming "check for tools" pass before this one, which
+    # doubled generation time on every message even when no tool was needed.
+    try:
+        for chunk in ollama.chat(
+            model=MODEL_NAME, messages=messages, tools=tools.TOOL_DEFINITIONS,
+            stream=True, options={"num_ctx": NUM_CTX}
+        ):
+            msg = chunk.get("message", {})
+            piece = msg.get("content")
+            if piece:
+                full_text += piece
+                yield {"type": "token", "text": piece}
+            tc = msg.get("tool_calls")
+            if tc:
+                collected_tool_calls.extend(tc)
+    except Exception:
+        logger.exception("Primary streaming chat call failed")
+
+    # Only fire a second pass if a tool was actually requested and no reply
+    # text came through yet (the model deferred to the tool instead of answering).
+    if collected_tool_calls and not full_text:
+        messages.append({"role": "assistant", "content": "", "tool_calls": collected_tool_calls})
+        for call in collected_tool_calls:
             fn_name = call["function"]["name"]
             fn_args = call["function"].get("arguments") or {}
             yield {"type": "status", "text": f"Running: {fn_name}..."}
@@ -52,19 +70,20 @@ def chat_stream(message: str, history: list[dict], context_chunks: list[str] | N
             yield {"type": "status", "text": f"{fn_name} finished"}
             messages.append({"role": "tool", "content": result, "name": fn_name})
 
-    yield {"type": "status", "text": "Thinking..."}
+        yield {"type": "status", "text": "Thinking..."}
+        try:
+            for chunk in ollama.chat(model=MODEL_NAME, messages=messages, stream=True, options={"num_ctx": NUM_CTX}):
+                piece = chunk["message"]["content"]
+                if piece:
+                    full_text += piece
+                    yield {"type": "token", "text": piece}
+        except Exception:
+            logger.exception("Post-tool streaming chat call failed")
+            if not full_text:
+                full_text = "(something went wrong generating a reply — check nox.log for details)"
 
-    full_text = ""
-    try:
-        for chunk in ollama.chat(model=MODEL_NAME, messages=messages, stream=True):
-            piece = chunk["message"]["content"]
-            if piece:
-                full_text += piece
-                yield {"type": "token", "text": piece}
-    except Exception:
-        logger.exception("Streaming chat generation failed")
-        if not full_text:
-            full_text = "(something went wrong generating a reply — check nox.log for details)"
+    if not full_text and not collected_tool_calls:
+        full_text = "(no response — check nox.log for details)"
 
     yield {"type": "done", "reply": full_text}
 
@@ -88,7 +107,10 @@ def summarize_chat_to_facts(messages: list[dict]) -> list[str]:
         f"{transcript}"
     )
     try:
-        response = ollama.chat(model=MODEL_NAME, messages=[{"role": "user", "content": prompt}])
+        response = ollama.chat(
+            model=MODEL_NAME, messages=[{"role": "user", "content": prompt}],
+            options={"num_ctx": NUM_CTX}
+        )
     except Exception:
         logger.exception("summarize_chat_to_facts failed")
         return []
