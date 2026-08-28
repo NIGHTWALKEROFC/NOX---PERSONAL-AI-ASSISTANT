@@ -4,9 +4,11 @@ import threading
 
 class PasteSafeInput:
     """Reads terminal input line-by-line on a background thread. When several
-    lines arrive almost instantly (a paste), they're merged into ONE message
-    instead of firing a separate send per line — fixes messages auto-sending
-    mid-paste instead of waiting for a real Enter press."""
+    lines arrive close together (a paste), they're merged into ONE message
+    instead of firing a separate send per line. 400ms window (up from 150ms)
+    to reliably catch large pastes where chunk gaps can be bigger than that."""
+
+    MERGE_WINDOW_SECONDS = 0.4
 
     def __init__(self):
         self._q = queue.Queue()
@@ -29,7 +31,7 @@ class PasteSafeInput:
         lines = [first]
         while True:
             try:
-                nxt = self._q.get(timeout=0.15)
+                nxt = self._q.get(timeout=self.MERGE_WINDOW_SECONDS)
             except queue.Empty:
                 break
             if nxt is None:
