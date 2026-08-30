@@ -5,7 +5,7 @@ import settings
 import tools
 
 logger = logging.getLogger("nox.llm")
-HISTORY_TURNS = 12
+HISTORY_TURNS = 16
 
 
 def _build_system_prompt() -> str:
